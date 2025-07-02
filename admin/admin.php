@@ -64,34 +64,10 @@ class MailWP_Admin {
     public function register_settings() {
         register_setting(
             'mailwp_settings',
-            'mailwp_api_key',
-            [
-                'sanitize_callback' => [$this, 'validate_settings']
-            ]
-        );
-        
-        register_setting(
-            'mailwp_settings',
-            'mailwp_from_name',
-            [
-                'sanitize_callback' => 'sanitize_text_field'
-            ]
-        );
-
-        register_setting(
-            'mailwp_settings',
-            'mailwp_from_email',
-            [
-                'sanitize_callback' => 'sanitize_email'
-            ]
-        );
-
-        register_setting(
-            'mailwp_settings',
             'mailwp_mailer_type',
             [
                 'sanitize_callback' => 'sanitize_text_field',
-                'default' => 'resend'
+                'default' => 'smtp'
             ]
         );
 
@@ -139,35 +115,19 @@ class MailWP_Admin {
 
         register_setting(
             'mailwp_settings',
+            'mailwp_smtp_from_name',
+            [
+                'sanitize_callback' => 'sanitize_text_field'
+            ]
+        );
+
+        register_setting(
+            'mailwp_settings',
             'mailwp_smtp_from_email',
             [
                 'sanitize_callback' => 'sanitize_email'
             ]
         );
-    }
-    
-    /**
-     * Validate settings and add confirmation message
-     * 
-     * @param string $input The value to validate
-     * @return string The sanitized value
-     */
-    public function validate_settings($input) {
-        // Sanitize the API key
-        $api_key = sanitize_text_field($input);
-        
-        // Add a success message only if it hasn't been added yet
-        if (!get_transient('mailwp_settings_saved')) {
-            add_settings_error(
-                'mailwp_settings',
-                'mailwp_settings_updated',
-                __('MailWP settings saved successfully.', 'mailwp'),
-                'updated'
-            );
-            set_transient('mailwp_settings_saved', true, 30);
-        }
-        
-        return $api_key;
     }
     
     /**
@@ -214,44 +174,17 @@ class MailWP_Admin {
                     ?>
                     <table class="form-table">
                         <tr valign="top">
-                            <th scope="row"><?php _e('Type', 'mailwp'); ?></th>
+                            <th scope="row"><?php _e('Mailer Type', 'mailwp'); ?></th>
                             <td>
                                 <select name="mailwp_mailer_type" id="mailwp_mailer_type">
-                                    <option value="smtp" <?php selected(get_option('mailwp_mailer_type', 'resend'), 'smtp'); ?>><?php _e('SMTP', 'mailwp'); ?></option>
-                                    <option value="resend" <?php selected(get_option('mailwp_mailer_type', 'resend'), 'resend'); ?>><?php _e('Resend', 'mailwp'); ?></option>
+                                    <option value="smtp" <?php selected(get_option('mailwp_mailer_type', 'smtp'), 'smtp'); ?>><?php _e('SMTP', 'mailwp'); ?></option>
                                 </select>
                                 <p class="description"><?php _e('Choose the type of email sending you want to use.', 'mailwp'); ?></p>
                             </td>
                         </tr>
                     </table>
 
-                    <div id="resend_options" style="display: <?php echo get_option('mailwp_mailer_type', 'resend') === 'resend' ? 'block' : 'none'; ?>">
-                        <table class="form-table">
-                            <tr valign="top">
-                                <th scope="row"><?php _e('Resend API Key', 'mailwp'); ?></th>
-                                <td>
-                                    <input type="text" name="mailwp_api_key" value="<?php echo esc_attr(get_option('mailwp_api_key')); ?>" class="regular-text" />
-                                    <p class="description"><?php _e('Enter your Resend API key.', 'mailwp'); ?></p>
-                                </td>
-                            </tr>
-                            <tr valign="top">
-                                <th scope="row"><?php _e('From Name', 'mailwp'); ?></th>
-                                <td>
-                                    <input type="text" name="mailwp_from_name" value="<?php echo esc_attr(get_option('mailwp_from_name', get_bloginfo('name'))); ?>" class="regular-text" />
-                                    <p class="description"><?php _e('The name that will appear as the sender of your emails.', 'mailwp'); ?></p>
-                                </td>
-                            </tr>
-                            <tr valign="top">
-                                <th scope="row"><?php _e('From Email', 'mailwp'); ?></th>
-                                <td>
-                                    <input type="email" name="mailwp_from_email" value="<?php echo esc_attr(get_option('mailwp_from_email')); ?>" class="regular-text" />
-                                    <p class="description"><?php _e('The email address that will be used to send emails. Must be a verified domain in Resend.', 'mailwp'); ?></p>
-                                </td>
-                            </tr>
-                        </table>
-                    </div>
-
-                    <div id="smtp_options" style="display: <?php echo get_option('mailwp_mailer_type', 'resend') === 'smtp' ? 'block' : 'none'; ?>">
+                    <div id="smtp_options" style="display: <?php echo get_option('mailwp_mailer_type', 'smtp') === 'smtp' ? 'block' : 'none'; ?>">
                         <table class="form-table">
                             <tr valign="top">
                                 <th scope="row"><?php _e('SMTP Host', 'mailwp'); ?></th>
@@ -293,14 +226,14 @@ class MailWP_Admin {
                                 </td>
                             </tr>
                             <tr valign="top">
-                                <th scope="row"><?php _e('SMTP From Name', 'mailwp'); ?></th>
+                                <th scope="row"><?php _e('From Name', 'mailwp'); ?></th>
                                 <td>
-                                    <input type="text" name="mailwp_sender_name" value="<?php echo esc_attr(get_option('mailwp_sender_name', get_bloginfo('name'))); ?>" class="regular-text" />
+                                    <input type="text" name="mailwp_smtp_from_name" value="<?php echo esc_attr(get_option('mailwp_smtp_from_name', get_bloginfo('name'))); ?>" class="regular-text" />
                                     <p class="description"><?php _e('The name that will appear as the sender of your emails.', 'mailwp'); ?></p>
                                 </td>
                             </tr>
                             <tr valign="top">
-                                <th scope="row"><?php _e('SMTP From Email', 'mailwp'); ?></th>
+                                <th scope="row"><?php _e('From Email', 'mailwp'); ?></th>
                                 <td>
                                     <input type="email" name="mailwp_smtp_from_email" value="<?php echo esc_attr(get_option('mailwp_smtp_from_email')); ?>" class="regular-text" />
                                     <p class="description"><?php _e('The email address that will be used to send emails.', 'mailwp'); ?></p>
@@ -315,12 +248,10 @@ class MailWP_Admin {
                 <script>
                 jQuery(document).ready(function($) {
                     $('#mailwp_mailer_type').on('change', function() {
-                        if ($(this).val() === 'resend') {
-                            $('#resend_options').show();
-                            $('#smtp_options').hide();
-                        } else {
-                            $('#resend_options').hide();
+                        if ($(this).val() === 'smtp') {
                             $('#smtp_options').show();
+                        } else {
+                            $('#smtp_options').hide();
                         }
                     });
                 });
@@ -418,12 +349,10 @@ class MailWP_Admin {
             wp_die();
         }
         
-        global $mailwp_service;
-        
-        // Check if API key is configured
-        $api_key = $mailwp_service->get_api_key();
-        if (empty($api_key) && get_option('mailwp_mailer_type', 'resend') === 'resend') {
-            echo '<div class="notice notice-error inline"><p>' . __('Error: Resend API key not configured. Please configure your API key first.', 'mailwp') . '</p></div>';
+        // Check if SMTP is configured
+        $smtp_host = get_option('mailwp_smtp_host', '');
+        if (empty($smtp_host) && get_option('mailwp_mailer_type', 'smtp') === 'smtp') {
+            echo '<div class="notice notice-error inline"><p>' . __('Error: SMTP host not configured. Please configure your SMTP settings first.', 'mailwp') . '</p></div>';
             wp_die();
         }
         
@@ -485,15 +414,13 @@ class MailWP_Admin {
             wp_die(__('You do not have sufficient permissions to access this page.', 'mailwp'));
         }
         
-        global $mailwp_service;
-        
-        // Check if API key is configured
-        $api_key = $mailwp_service->get_api_key();
-        if (empty($api_key) && get_option('mailwp_mailer_type', 'resend') === 'resend') {
+        // Check if SMTP is configured
+        $smtp_host = get_option('mailwp_smtp_host', '');
+        if (empty($smtp_host) && get_option('mailwp_mailer_type', 'smtp') === 'smtp') {
             add_settings_error(
                 'mailwp_settings',
-                'mailwp_api_key_missing',
-                __('Error: Resend API key not configured. Please configure your API key first.', 'mailwp'),
+                'mailwp_smtp_host_missing',
+                __('Error: SMTP host not configured. Please configure your SMTP settings first.', 'mailwp'),
                 'error'
             );
             
