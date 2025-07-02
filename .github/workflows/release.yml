@@ -1,0 +1,184 @@
+name: Create Release Zip
+
+on:
+  workflow_dispatch:
+  release:
+    types: [created]
+    
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  update-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Get commit history since last release
+        id: commit_history
+        shell: bash
+        run: |
+          # Fetch all tags to ensure we have the complete history
+          git fetch --tags --force
+          
+          # Get the last release tag
+          LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          
+          # If no previous tag exists or can't be found
+          if [ -z "$LAST_TAG" ]; then
+            echo "No previous tag found, getting all commits"
+            COMMIT_HISTORY=$(git log --pretty=format:"- %s (%h)" -n 20 | cat)
+          else
+            echo "Found previous tag: $LAST_TAG"
+            # Get commits since last tag to current tag
+            CURRENT_TAG="${{ github.event.release.tag_name }}"
+            echo "Current tag: $CURRENT_TAG"
+            COMMIT_HISTORY=$(git log --pretty=format:"- %s (%h)" "$LAST_TAG..$CURRENT_TAG" | cat)
+            
+            # If no commits found between tags, get recent commits
+            if [ -z "$COMMIT_HISTORY" ]; then
+              echo "No commits found between tags, getting recent commits"
+              COMMIT_HISTORY=$(git log --pretty=format:"- %s (%h)" -n 20 | cat)
+            fi
+          fi
+          
+          echo "COMMIT_HISTORY<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMMIT_HISTORY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Update Release with Processing Message
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          name: ${{ github.event.release.name }}
+          body: |
+            ### Build Information
+            - Build Number: ${{ github.run_number }}
+            - Commit: ${{ github.sha }}
+            - Date: ${{ github.event.release.created_at }}
+            
+            ### Changes
+            ${{ steps.commit_history.outputs.COMMIT_HISTORY }}
+            
+            ### Files are being generated...
+          draft: false
+          prerelease: ${{ github.event.release.prerelease }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  
+  build:
+    needs: update-release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Build project
+        run: |
+          # Get version from tag
+          VERSION=${GITHUB_REF#refs/tags/}
+          
+          # Clean any existing build directory
+          rm -rf build_tmp mailwp
+          
+          # Create a temporary directory for the build
+          mkdir -p build_tmp/mailwp
+          
+          # Copy all relevant files to the mailwp directory within temp
+          rsync -av --progress ./ build_tmp/mailwp/ --exclude .git --exclude .github --exclude .gitignore --exclude "*.zip" --exclude "*.log" --exclude "node_modules" --exclude ".DS_Store" --exclude build_tmp
+          
+          # Create the zip file with a single mailwp directory structure
+          cd build_tmp && zip -r ../mailwp-$VERSION.zip . && cd ..
+          
+          # Clean up temp directory
+          rm -rf build_tmp
+      
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mailwp-plugin
+          path: mailwp-${{ github.ref_name }}.zip
+          retention-days: 1
+          
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+        
+      - name: Get commit history since last release
+        id: commit_history
+        shell: bash
+        run: |
+          # Fetch all tags to ensure we have the complete history
+          git fetch --tags --force
+          
+          # Get the last release tag
+          LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          
+          # If no previous tag exists or can't be found
+          if [ -z "$LAST_TAG" ]; then
+            echo "No previous tag found, getting all commits"
+            COMMIT_HISTORY=$(git log --pretty=format:"- %s (%h)" -n 20 | cat)
+          else
+            echo "Found previous tag: $LAST_TAG"
+            # Get commits since last tag to current tag
+            CURRENT_TAG="${{ github.event.release.tag_name }}"
+            echo "Current tag: $CURRENT_TAG"
+            COMMIT_HISTORY=$(git log --pretty=format:"- %s (%h)" "$LAST_TAG..$CURRENT_TAG" | cat)
+            
+            # If no commits found between tags, get recent commits
+            if [ -z "$COMMIT_HISTORY" ]; then
+              echo "No commits found between tags, getting recent commits"
+              COMMIT_HISTORY=$(git log --pretty=format:"- %s (%h)" -n 20 | cat)
+            fi
+          fi
+          
+          echo "COMMIT_HISTORY<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMMIT_HISTORY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: mailwp-plugin
+          path: release-files
+          
+      - name: List release files
+        run: ls -la release-files/
+          
+      - name: Update Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          name: ${{ github.event.release.name }}
+          body: |
+            ### Build Information
+            - Build Number: ${{ github.run_number }}
+            - Commit: ${{ github.sha }}
+            - Date: ${{ github.event.release.created_at }}
+            
+            ### Changes
+            ${{ steps.commit_history.outputs.COMMIT_HISTORY }}
+            
+            ### Installation
+            Download and install the WordPress plugin zip file.
+            
+            ### Support
+            For support or to report issues, please visit our GitHub repository.
+          files: release-files/*
+          draft: false
+          prerelease: ${{ github.event.release.prerelease }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
