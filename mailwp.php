@@ -251,18 +251,27 @@ class Hy_MailWP_Service {
             return false;
         }
         
-        // Format message based on content type
-        if (strpos($content_type, 'text/html') === false) {
-            // If not HTML, convert newlines to <br>
-            $message = nl2br($message);
+        // Format message and determine content types
+        $is_html = strpos($content_type, 'text/html') !== false;
+        $html_message = $message;
+        $text_message = '';
+        
+        if ($is_html) {
+            // Message is HTML, generate plaintext version
+            $text_message = $this->convert_html_to_plaintext($message);
+        } else {
+            // Message is plaintext, prepare HTML version
+            $text_message = $message;
+            $html_message = nl2br($message);
         }
         
-        // Build the payload for Resend API
+        // Build the payload for Resend API with both HTML and plaintext versions
         $payload = [
             'from' => $from_name . ' <' . $from_email . '>',
             'to' => $all_recipients,
             'subject' => $subject,
-            'html' => $message
+            'html' => $html_message,
+            'text' => $text_message
         ];
         
         // Add CC if present
@@ -314,6 +323,7 @@ class Hy_MailWP_Service {
             'to' => implode(', ', $all_recipients),
             'subject' => $subject,
             'from' => $from_name . ' <' . $from_email . '>',
+            'format' => 'HTML + plaintext'
         ]));
         
         // Send the request to the API
@@ -451,6 +461,41 @@ class Hy_MailWP_Service {
      */
     public function get_api_url() {
         return $this->api_url;
+    }
+
+    /**
+     * Convert HTML content to plaintext
+     * 
+     * @param string $html HTML content
+     * @return string Plaintext content
+     */
+    private function convert_html_to_plaintext($html) {
+        // Remove style and script tags and their content
+        $html = preg_replace('/<(style|script)[^>]*>.*?<\/\1>/is', '', $html);
+        
+        // Convert common HTML elements to plaintext equivalents
+        $html = preg_replace('/<br\s*\/?>/i', "\n", $html);
+        $html = preg_replace('/<\/p>/i', "\n\n", $html);
+        $html = preg_replace('/<\/div>/i', "\n", $html);
+        $html = preg_replace('/<\/h[1-6]>/i', "\n\n", $html);
+        $html = preg_replace('/<\/li>/i', "\n", $html);
+        $html = preg_replace('/<hr\s*\/?>/i', "\n" . str_repeat('-', 50) . "\n", $html);
+        
+        // Convert links to plaintext format
+        $html = preg_replace('/<a[^>]*href=["\']([^"\']*)["\'][^>]*>(.*?)<\/a>/i', '$2 ($1)', $html);
+        
+        // Remove all remaining HTML tags
+        $text = strip_tags($html);
+        
+        // Decode HTML entities
+        $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        
+        // Clean up whitespace
+        $text = preg_replace('/\n\s*\n/', "\n\n", $text); // Multiple newlines to double newline
+        $text = preg_replace('/[ \t]+/', ' ', $text); // Multiple spaces/tabs to single space
+        $text = trim($text);
+        
+        return $text;
     }
 
     /**
