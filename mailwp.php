@@ -2,7 +2,7 @@
 /**
  * Plugin Name: MailWP
  * Description: Replace WordPress email function with SMTP or other email providers.
- * Version: 1.0.1
+ * Version: 1.0.2
  * Author: Hyko
  * Author URI: https://hyko.cx
  * Text Domain: mailwp
