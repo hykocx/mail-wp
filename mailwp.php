@@ -29,19 +29,105 @@ require_once plugin_dir_path(__FILE__) . '/includes/plugin-update-checker.php';
 // Include admin functionality
 require_once plugin_dir_path(__FILE__) . '/admin/admin.php';
 
+// Include Microsoft Graph OAuth functionality
+require_once plugin_dir_path(__FILE__) . '/includes/class-microsoft-graph-oauth.php';
+
 // Import PHPMailer namespace
 use PHPMailer\PHPMailer\PHPMailer;
 
 class Hy_MailWP_Service {
+    
+    /**
+     * Microsoft Graph OAuth instance
+     * @var MailWP_Microsoft_Graph_OAuth
+     */
+    public $microsoft_oauth;
+    
     /**
      * Constructor - initializes the plugin
      */
     public function __construct() {
-        // Configure PHPMailer for SMTP
+        // Initialize Microsoft Graph OAuth
+        $this->microsoft_oauth = new MailWP_Microsoft_Graph_OAuth();
+        
+        // Hook into wp_mail to handle different mailer types
+        add_filter('pre_wp_mail', [$this, 'handle_wp_mail'], 10, 2);
+        
+        // Configure PHPMailer for SMTP when needed
         add_action('phpmailer_init', [$this, 'configure_smtp']);
         
         // Log email failures
         add_action('wp_mail_failed', [$this, 'log_email_error']);
+    }
+
+    /**
+     * Handle wp_mail and route to appropriate mailer
+     * 
+     * @param null|bool $return Short-circuit return value
+     * @param array $atts wp_mail() arguments
+     * @return null|bool
+     */
+    public function handle_wp_mail($return, $atts) {
+        $mailer_type = get_option('mailwp_mailer_type', 'smtp');
+        
+        // If not using Microsoft Graph OAuth, let WordPress handle normally
+        if ($mailer_type !== 'microsoft_graph') {
+            return $return;
+        }
+        
+        // Check if Microsoft Graph OAuth is configured and authorized
+        if (!$this->microsoft_oauth->is_configured() || !$this->microsoft_oauth->is_authorized()) {
+            $this->log_message('error', 'Microsoft Graph OAuth not properly configured or authorized');
+            return new WP_Error('mailwp_not_configured', 'Microsoft Graph OAuth not properly configured or authorized');
+        }
+        
+        // Extract arguments
+        $to = $atts['to'] ?? '';
+        $subject = $atts['subject'] ?? '';
+        $message = $atts['message'] ?? '';
+        $headers = $atts['headers'] ?? [];
+        $attachments = $atts['attachments'] ?? [];
+        
+        // Parse headers for CC, BCC
+        $cc = [];
+        $bcc = [];
+        $parsed_headers = [];
+        
+        if (is_array($headers)) {
+            foreach ($headers as $header) {
+                if (is_string($header)) {
+                    if (stripos($header, 'cc:') === 0) {
+                        $cc[] = trim(substr($header, 3));
+                    } elseif (stripos($header, 'bcc:') === 0) {
+                        $bcc[] = trim(substr($header, 4));
+                    } else {
+                        $parsed_headers[] = $header;
+                    }
+                }
+            }
+        }
+        
+        // Prepare email data
+        $email_data = [
+            'to' => $to,
+            'subject' => $subject,
+            'message' => $message,
+            'headers' => $parsed_headers,
+            'cc' => $cc,
+            'bcc' => $bcc,
+            'attachments' => $attachments
+        ];
+        
+        // Send via Microsoft Graph API
+        $result = $this->microsoft_oauth->send_email($email_data);
+        
+        if (is_wp_error($result)) {
+            $this->log_message('error', 'Microsoft Graph API error: ' . $result->get_error_message());
+            return $result;
+        }
+        
+        $this->log_message('info', 'Email sent successfully via Microsoft Graph API');
+        return true; // Short-circuit wp_mail() - email was handled
     }
 
     /**

@@ -128,6 +128,71 @@ class MailWP_Admin {
                 'sanitize_callback' => 'sanitize_email'
             ]
         );
+
+        // Microsoft Graph OAuth Settings
+        register_setting(
+            'mailwp_settings',
+            'mailwp_msauth_client_id',
+            [
+                'sanitize_callback' => 'sanitize_text_field'
+            ]
+        );
+
+        register_setting(
+            'mailwp_settings',
+            'mailwp_msauth_tenant_id',
+            [
+                'sanitize_callback' => 'sanitize_text_field'
+            ]
+        );
+
+        register_setting(
+            'mailwp_settings',
+            'mailwp_msauth_client_secret',
+            [
+                'sanitize_callback' => 'sanitize_text_field'
+            ]
+        );
+
+        register_setting(
+            'mailwp_settings',
+            'mailwp_msauth_from_email',
+            [
+                'sanitize_callback' => 'sanitize_email'
+            ]
+        );
+
+        register_setting(
+            'mailwp_settings',
+            'mailwp_msauth_from_name',
+            [
+                'sanitize_callback' => 'sanitize_text_field'
+            ]
+        );
+
+        register_setting(
+            'mailwp_settings',
+            'mailwp_msauth_access_token',
+            [
+                'sanitize_callback' => 'sanitize_text_field'
+            ]
+        );
+
+        register_setting(
+            'mailwp_settings',
+            'mailwp_msauth_refresh_token',
+            [
+                'sanitize_callback' => 'sanitize_text_field'
+            ]
+        );
+
+        register_setting(
+            'mailwp_settings',
+            'mailwp_msauth_token_expires',
+            [
+                'sanitize_callback' => 'absint'
+            ]
+        );
     }
     
     /**
@@ -178,6 +243,7 @@ class MailWP_Admin {
                             <td>
                                 <select name="mailwp_mailer_type" id="mailwp_mailer_type">
                                     <option value="smtp" <?php selected(get_option('mailwp_mailer_type', 'smtp'), 'smtp'); ?>><?php _e('SMTP', 'mailwp'); ?></option>
+                                    <option value="microsoft_graph" <?php selected(get_option('mailwp_mailer_type', 'smtp'), 'microsoft_graph'); ?>><?php _e('Microsoft', 'mailwp'); ?></option>
                                 </select>
                                 <p class="description"><?php _e('Choose the type of email sending you want to use.', 'mailwp'); ?></p>
                             </td>
@@ -241,6 +307,70 @@ class MailWP_Admin {
                             </tr>
                         </table>
                     </div>
+
+                    <div id="microsoft_graph_options" style="display: <?php echo get_option('mailwp_mailer_type', 'smtp') === 'microsoft_graph' ? 'block' : 'none'; ?>">
+                        <table class="form-table">
+                            <tr valign="top">
+                                <th scope="row"><?php _e('Client ID', 'mailwp'); ?></th>
+                                <td>
+                                    <input type="text" name="mailwp_msauth_client_id" value="<?php echo esc_attr(get_option('mailwp_msauth_client_id')); ?>" class="regular-text" />
+                                    <p class="description"><?php _e('Your Azure AD Application Client ID.', 'mailwp'); ?></p>
+                                </td>
+                            </tr>
+                            <tr valign="top">
+                                <th scope="row"><?php _e('Tenant ID', 'mailwp'); ?></th>
+                                <td>
+                                    <input type="text" name="mailwp_msauth_tenant_id" value="<?php echo esc_attr(get_option('mailwp_msauth_tenant_id')); ?>" class="regular-text" />
+                                    <p class="description"><?php _e('Your Azure AD Tenant ID.', 'mailwp'); ?></p>
+                                </td>
+                            </tr>
+                            <tr valign="top">
+                                <th scope="row"><?php _e('Client Secret', 'mailwp'); ?></th>
+                                <td>
+                                    <input type="password" name="mailwp_msauth_client_secret" value="<?php echo esc_attr(get_option('mailwp_msauth_client_secret')); ?>" class="regular-text" />
+                                    <p class="description"><?php _e('Your Azure AD Application Client Secret.', 'mailwp'); ?></p>
+                                </td>
+                            </tr>
+                            <tr valign="top">
+                                <th scope="row"><?php _e('From Email', 'mailwp'); ?></th>
+                                <td>
+                                    <input type="email" name="mailwp_msauth_from_email" value="<?php echo esc_attr(get_option('mailwp_msauth_from_email')); ?>" class="regular-text" />
+                                    <p class="description"><?php _e('The Microsoft 365 email address to send emails from.', 'mailwp'); ?></p>
+                                </td>
+                            </tr>
+                            <tr valign="top">
+                                <th scope="row"><?php _e('From Name', 'mailwp'); ?></th>
+                                <td>
+                                    <input type="text" name="mailwp_msauth_from_name" value="<?php echo esc_attr(get_option('mailwp_msauth_from_name', get_bloginfo('name'))); ?>" class="regular-text" />
+                                    <p class="description"><?php _e('The name that will appear as the sender of your emails.', 'mailwp'); ?></p>
+                                </td>
+                            </tr>
+                            <tr valign="top">
+                                <th scope="row"><?php _e('Authorization Status', 'mailwp'); ?></th>
+                                <td>
+                                    <?php
+                                    $access_token = get_option('mailwp_msauth_access_token');
+                                    if (!empty($access_token)):
+                                    ?>
+                                        <p style="color: green;"><strong><?php _e('✓ Authorized', 'mailwp'); ?></strong></p>
+                                        <p>
+                                            <a href="<?php echo wp_nonce_url(admin_url('options-general.php?page=mailwp-settings&action=revoke_msauth'), 'revoke_msauth'); ?>" class="button button-secondary">
+                                                <?php _e('Revoke Authorization', 'mailwp'); ?>
+                                            </a>
+                                        </p>
+                                    <?php else: ?>
+                                        <p style="color: red;"><strong><?php _e('✗ Not Authorized', 'mailwp'); ?></strong></p>
+                                        <p>
+                                            <a href="<?php echo wp_nonce_url(admin_url('options-general.php?page=mailwp-settings&action=authorize_msauth'), 'authorize_msauth'); ?>" class="button button-primary">
+                                                <?php _e('Authorize with Microsoft', 'mailwp'); ?>
+                                            </a>
+                                        </p>
+                                    <?php endif; ?>
+                                    <p class="description"><?php _e('You must authorize the application to send emails on your behalf.', 'mailwp'); ?></p>
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
                     
                     <?php submit_button(); ?>
                 </form>
@@ -250,8 +380,13 @@ class MailWP_Admin {
                     $('#mailwp_mailer_type').on('change', function() {
                         if ($(this).val() === 'smtp') {
                             $('#smtp_options').show();
+                            $('#microsoft_graph_options').hide();
+                        } else if ($(this).val() === 'microsoft_graph') {
+                            $('#smtp_options').hide();
+                            $('#microsoft_graph_options').show();
                         } else {
                             $('#smtp_options').hide();
+                            $('#microsoft_graph_options').hide();
                         }
                     });
                 });
@@ -349,11 +484,26 @@ class MailWP_Admin {
             wp_die();
         }
         
-        // Check if SMTP is configured
-        $smtp_host = get_option('mailwp_smtp_host', '');
-        if (empty($smtp_host) && get_option('mailwp_mailer_type', 'smtp') === 'smtp') {
-            echo '<div class="notice notice-error inline"><p>' . __('Error: SMTP host not configured. Please configure your SMTP settings first.', 'mailwp') . '</p></div>';
-            wp_die();
+        // Check if the selected mailer is configured
+        $mailer_type = get_option('mailwp_mailer_type', 'smtp');
+        
+        if ($mailer_type === 'smtp') {
+            $smtp_host = get_option('mailwp_smtp_host', '');
+            if (empty($smtp_host)) {
+                echo '<div class="notice notice-error inline"><p>' . __('Error: SMTP host not configured. Please configure your SMTP settings first.', 'mailwp') . '</p></div>';
+                wp_die();
+            }
+        } elseif ($mailer_type === 'microsoft_graph') {
+            global $mailwp_service;
+            if (!$mailwp_service->microsoft_oauth->is_configured()) {
+                echo '<div class="notice notice-error inline"><p>' . __('Error: Microsoft Graph OAuth not configured. Please configure your Microsoft Graph settings first.', 'mailwp') . '</p></div>';
+                wp_die();
+            }
+            
+            if (!$mailwp_service->microsoft_oauth->is_authorized()) {
+                echo '<div class="notice notice-error inline"><p>' . __('Error: Microsoft Graph OAuth not authorized. Please authorize the application first.', 'mailwp') . '</p></div>';
+                wp_die();
+            }
         }
         
         $message = __('This is a test email sent via MailWP. If you receive this email, the configuration is working correctly. Please verify the sender address to ensure it matches your expected configuration.', 'mailwp');
@@ -414,22 +564,59 @@ class MailWP_Admin {
             wp_die(__('You do not have sufficient permissions to access this page.', 'mailwp'));
         }
         
-        // Check if SMTP is configured
-        $smtp_host = get_option('mailwp_smtp_host', '');
-        if (empty($smtp_host) && get_option('mailwp_mailer_type', 'smtp') === 'smtp') {
-            add_settings_error(
-                'mailwp_settings',
-                'mailwp_smtp_host_missing',
-                __('Error: SMTP host not configured. Please configure your SMTP settings first.', 'mailwp'),
-                'error'
-            );
+        // Check if the selected mailer is configured
+        $mailer_type = get_option('mailwp_mailer_type', 'smtp');
+        
+        if ($mailer_type === 'smtp') {
+            $smtp_host = get_option('mailwp_smtp_host', '');
+            if (empty($smtp_host)) {
+                add_settings_error(
+                    'mailwp_settings',
+                    'mailwp_smtp_host_missing',
+                    __('Error: SMTP host not configured. Please configure your SMTP settings first.', 'mailwp'),
+                    'error'
+                );
+                
+                // Store the messages so they can be displayed after redirect
+                set_transient('mailwp_settings_errors', get_settings_errors('mailwp_settings'), 30);
+                
+                // Redirect to the settings page
+                wp_redirect(admin_url('options-general.php?page=mailwp-settings&settings-updated=true'));
+                exit;
+            }
+        } elseif ($mailer_type === 'microsoft_graph') {
+            global $mailwp_service;
+            if (!$mailwp_service->microsoft_oauth->is_configured()) {
+                add_settings_error(
+                    'mailwp_settings',
+                    'mailwp_msauth_not_configured',
+                    __('Error: Microsoft Graph OAuth not configured. Please configure your Microsoft Graph settings first.', 'mailwp'),
+                    'error'
+                );
+                
+                // Store the messages so they can be displayed after redirect
+                set_transient('mailwp_settings_errors', get_settings_errors('mailwp_settings'), 30);
+                
+                // Redirect to the settings page
+                wp_redirect(admin_url('options-general.php?page=mailwp-settings&settings-updated=true'));
+                exit;
+            }
             
-            // Store the messages so they can be displayed after redirect
-            set_transient('mailwp_settings_errors', get_settings_errors('mailwp_settings'), 30);
-            
-            // Redirect to the settings page
-            wp_redirect(admin_url('options-general.php?page=mailwp-settings&settings-updated=true'));
-            exit;
+            if (!$mailwp_service->microsoft_oauth->is_authorized()) {
+                add_settings_error(
+                    'mailwp_settings',
+                    'mailwp_msauth_not_authorized',
+                    __('Error: Microsoft Graph OAuth not authorized. Please authorize the application first.', 'mailwp'),
+                    'error'
+                );
+                
+                // Store the messages so they can be displayed after redirect
+                set_transient('mailwp_settings_errors', get_settings_errors('mailwp_settings'), 30);
+                
+                // Redirect to the settings page
+                wp_redirect(admin_url('options-general.php?page=mailwp-settings&settings-updated=true'));
+                exit;
+            }
         }
         
         // Add a hook to capture mail errors
