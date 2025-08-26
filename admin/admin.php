@@ -481,18 +481,98 @@ class MailWP_Admin {
                     <?php submit_button(); ?>
                 </form>
 
+                <!-- Configuration Guide Section for Microsoft Graph -->
+                <div id="mailwp-microsoft-guide" style="display: <?php echo get_option('mailwp_mailer_type', 'smtp') === 'microsoft_graph' ? 'block' : 'none'; ?>; margin-top: 20px;">
+                    <div class="mailwp-guide-section" style="background: #f9f9f9; border: 1px solid #ddd; border-radius: 5px; padding: 20px;">
+                        <h3 style="margin-top: 0; color: #0073aa;">
+                            <span class="dashicons dashicons-info" style="margin-right: 8px;"></span>
+                            <?php _e('Guide: Creating a Microsoft Azure Application', 'mailwp'); ?>
+                        </h3>
+                        
+                        <div style="background: white; padding: 15px; border-radius: 3px;">
+                            <p style="margin-top: 0;">
+                                <?php _e('To use Microsoft Graph for sending emails, you need to create an application in Azure Active Directory. Follow these steps:', 'mailwp'); ?>
+                            </p>
+                            
+                            <ol style="padding-left: 20px;">
+                                <li style="margin-bottom: 10px;">
+                                    <strong><?php _e('Access Azure Portal', 'mailwp'); ?></strong><br>
+                                    <?php _e('Go to', 'mailwp'); ?> <a href="https://portal.azure.com" target="_blank" rel="noopener">https://portal.azure.com</a> <?php _e('and sign in with your Microsoft account.', 'mailwp'); ?>
+                                </li>
+                                
+                                <li style="margin-bottom: 10px;">
+                                    <strong><?php _e('Navigate to Azure Active Directory', 'mailwp'); ?></strong><br>
+                                    <?php _e('In the Azure portal, search for "Azure Active Directory" and select it.', 'mailwp'); ?>
+                                </li>
+                                
+                                <li style="margin-bottom: 10px;">
+                                    <strong><?php _e('Access App Registrations', 'mailwp'); ?></strong><br>
+                                    <?php _e('In the left menu, click on "App registrations".', 'mailwp'); ?>
+                                </li>
+                                
+                                <li style="margin-bottom: 10px;">
+                                    <strong><?php _e('Create New Registration', 'mailwp'); ?></strong><br>
+                                    <?php _e('Click on "New registration" and fill in:', 'mailwp'); ?>
+                                    <ul style="margin: 5px 0 0 20px;">
+                                        <li><?php _e('Name: MailWP Plugin (or any name you prefer)', 'mailwp'); ?></li>
+                                        <li><?php _e('Supported account types: Accounts in this organizational directory only', 'mailwp'); ?></li>
+                                        <li><?php _e('Redirect URI: Web -', 'mailwp'); ?> <code style="background: #f0f0f0; padding: 2px 4px;"><?php echo esc_html(admin_url('options-general.php?page=mailwp-settings&oauth_callback=1')); ?></code></li>
+                                    </ul>
+                                </li>
+                                
+                                <li style="margin-bottom: 10px;">
+                                    <strong><?php _e('Get Application (Client) ID', 'mailwp'); ?></strong><br>
+                                    <?php _e('After creating the app, copy the "Application (client) ID" from the overview page.', 'mailwp'); ?>
+                                </li>
+                                
+                                <li style="margin-bottom: 10px;">
+                                    <strong><?php _e('Get Directory (Tenant) ID', 'mailwp'); ?></strong><br>
+                                    <?php _e('Also copy the "Directory (tenant) ID" from the same overview page.', 'mailwp'); ?>
+                                </li>
+                                
+                                <li style="margin-bottom: 10px;">
+                                    <strong><?php _e('Create Client Secret', 'mailwp'); ?></strong><br>
+                                    <?php _e('Go to "Certificates & secrets" → "Client secrets" → "New client secret". Add a description and set expiration. Copy the secret value immediately (it won\'t be shown again).', 'mailwp'); ?>
+                                </li>
+                                
+                                <li style="margin-bottom: 10px;">
+                                    <strong><?php _e('Configure API Permissions', 'mailwp'); ?></strong><br>
+                                    <?php _e('Go to "API permissions" → "Add a permission" → "Microsoft Graph" → "Delegated permissions". Add:', 'mailwp'); ?>
+                                    <ul style="margin: 5px 0 0 20px;">
+                                        <li><code>Mail.Send</code> - <?php _e('Send mail as a user', 'mailwp'); ?></li>
+                                        <li><code>offline_access</code> - <?php _e('Maintain access to data you have given it access to', 'mailwp'); ?></li>
+                                    </ul>
+                                    <?php _e('Then click "Grant admin consent" if you are an administrator.', 'mailwp'); ?>
+                                </li>
+                            </ol>
+                            
+                            <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; border-radius: 3px; margin-top: 15px;">
+                                <strong style="color: #856404;"><?php _e('Important Notes:', 'mailwp'); ?></strong>
+                                <ul style="margin: 5px 0 0 20px; color: #856404;">
+                                    <li><?php _e('The client secret has an expiration date. Make sure to renew it before it expires.', 'mailwp'); ?></li>
+                                    <li><?php _e('The "From Email" address must be a valid email address from your Microsoft 365 organization.', 'mailwp'); ?></li>
+                                    <li><?php _e('Make sure the user account used for authorization has permission to send emails on behalf of the "From Email" address.', 'mailwp'); ?></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <script>
                 jQuery(document).ready(function($) {
                     $('#mailwp_mailer_type').on('change', function() {
                         if ($(this).val() === 'smtp') {
                             $('#smtp_options').show();
                             $('#microsoft_graph_options').hide();
+                            $('#mailwp-microsoft-guide').hide();
                         } else if ($(this).val() === 'microsoft_graph') {
                             $('#smtp_options').hide();
                             $('#microsoft_graph_options').show();
+                            $('#mailwp-microsoft-guide').show();
                         } else {
                             $('#smtp_options').hide();
                             $('#microsoft_graph_options').hide();
+                            $('#mailwp-microsoft-guide').hide();
                         }
                     });
                 });
