@@ -200,52 +200,6 @@ function mailwp_init() {
 add_action('plugins_loaded', 'mailwp_init');
 
 /**
- * Handle update check requests
- */
-function mailwp_handle_update_check() {
-    if (
-        isset($_GET['action']) && $_GET['action'] === 'mailwp_check_update' &&
-        isset($_GET['plugin']) && $_GET['plugin'] === plugin_basename(HYMAILWP_PLUGIN_FILE) &&
-        check_admin_referer('mailwp-check-update')
-    ) {
-        global $mailwp_service;
-        
-        // Initialize a temporary updater instance
-        if (class_exists('MailWP_GitHub_Updater')) {
-            $debug = defined('WP_DEBUG') && WP_DEBUG;
-            $updater = new MailWP_GitHub_Updater(
-                HYMAILWP_PLUGIN_FILE, 
-                MAILWP_GITHUB_REPO, 
-                'MailWP', 
-                '', 
-                $debug
-            );
-            
-            // First test update functionality - includes connectivity test
-            $updater->test_update_functionality();
-            
-            // If connection is successful, force update check
-            $updater->force_update_check();
-        }
-        
-        // Redirect to the plugins page
-        wp_redirect(admin_url('plugins.php?plugin_status=all&settings-updated=true'));
-        exit;
-    }
-}
-add_action('admin_init', 'mailwp_handle_update_check');
-
-/**
- * Display update messages on the plugins page
- */
-function mailwp_display_update_messages() {
-    if (class_exists('SiteMail_GitHub_Updater_Messages')) {
-        SiteMail_GitHub_Updater_Messages::display_messages();
-    }
-}
-add_action('admin_notices', 'mailwp_display_update_messages');
-
-/**
  * Activation and deactivation functions for the plugin
  */
 function mailwp_activate() {
