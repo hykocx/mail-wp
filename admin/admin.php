@@ -27,6 +27,11 @@ class MailWP_Admin {
         // Register settings
         add_action('admin_init', [$this, 'register_settings']);
         
+        // Preserve OAuth tokens during settings save
+        add_action('pre_update_option_mailwp_msauth_client_id', [$this, 'preserve_oauth_tokens'], 10, 3);
+        add_action('pre_update_option_mailwp_msauth_tenant_id', [$this, 'preserve_oauth_tokens'], 10, 3);
+        add_action('pre_update_option_mailwp_msauth_client_secret', [$this, 'preserve_oauth_tokens'], 10, 3);
+        
         // Add hook to show stored error messages after redirect
         add_action('admin_notices', [$this, 'show_stored_messages']);
         
@@ -170,29 +175,36 @@ class MailWP_Admin {
             ]
         );
 
-        register_setting(
-            'mailwp_settings',
-            'mailwp_msauth_access_token',
-            [
-                'sanitize_callback' => 'sanitize_text_field'
-            ]
-        );
-
-        register_setting(
-            'mailwp_settings',
-            'mailwp_msauth_refresh_token',
-            [
-                'sanitize_callback' => 'sanitize_text_field'
-            ]
-        );
-
-        register_setting(
-            'mailwp_settings',
-            'mailwp_msauth_token_expires',
-            [
-                'sanitize_callback' => 'absint'
-            ]
-        );
+        // Note: Les tokens OAuth ne sont PAS enregistrés comme settings normaux
+        // pour éviter qu'ils soient supprimés lors du save du formulaire.
+        // Ils sont gérés directement par la classe Microsoft_Graph_OAuth.
+    }
+    
+    /**
+     * Preserve OAuth tokens when OAuth config changes
+     * 
+     * @param mixed $value New value
+     * @param mixed $old_value Old value
+     * @param string $option Option name
+     * @return mixed
+     */
+    public function preserve_oauth_tokens($value, $old_value, $option) {
+        // Si les paramètres OAuth changent, on révoque les tokens existants
+        // pour forcer une nouvelle autorisation avec les nouveaux paramètres
+        if ($value !== $old_value && !empty($old_value)) {
+            delete_option('mailwp_msauth_access_token');
+            delete_option('mailwp_msauth_refresh_token');
+            delete_option('mailwp_msauth_token_expires');
+            
+            // Log the configuration change
+            global $mailwp_service;
+            if ($mailwp_service && $mailwp_service->logs) {
+                $option_label = str_replace('mailwp_msauth_', '', $option);
+                $mailwp_service->logs->log_config_change("Microsoft OAuth - $option_label", $old_value, $value);
+            }
+        }
+        
+        return $value;
     }
     
     /**
@@ -228,6 +240,9 @@ class MailWP_Admin {
                 </a>
                 <a href="?page=mailwp-settings&tab=test" class="nav-tab <?php echo $active_tab === 'test' ? 'nav-tab-active' : ''; ?>">
                     <?php _e('Testing', 'mailwp'); ?>
+                </a>
+                <a href="?page=mailwp-settings&tab=logs" class="nav-tab <?php echo $active_tab === 'logs' ? 'nav-tab-active' : ''; ?>">
+                    <?php _e('Logs', 'mailwp'); ?>
                 </a>
             </h2>
             
@@ -350,10 +365,12 @@ class MailWP_Admin {
                                 <td>
                                     <?php
                                     $access_token = get_option('mailwp_msauth_access_token');
-                                    if (!empty($access_token)):
-                                    ?>
+                                    if (!empty($access_token)): ?>
                                         <p style="color: green;"><strong><?php _e('✓ Authorized', 'mailwp'); ?></strong></p>
                                         <p>
+                                            <a href="<?php echo wp_nonce_url(admin_url('options-general.php?page=mailwp-settings&action=change_msauth_account'), 'change_msauth_account'); ?>" class="button button-primary">
+                                                <?php _e('Change Account', 'mailwp'); ?>
+                                            </a>
                                             <a href="<?php echo wp_nonce_url(admin_url('options-general.php?page=mailwp-settings&action=revoke_msauth'), 'revoke_msauth'); ?>" class="button button-secondary">
                                                 <?php _e('Revoke Authorization', 'mailwp'); ?>
                                             </a>
@@ -438,6 +455,8 @@ class MailWP_Admin {
                         });
                     });
                 </script>
+            <?php elseif ($active_tab === 'logs') : ?>
+                <?php $this->render_logs_tab(); ?>
             <?php endif; ?>
         </div>
         <?php
@@ -457,6 +476,9 @@ class MailWP_Admin {
             
             // Add AJAX endpoint for custom test email
             add_action('wp_ajax_mailwp_send_test_email', [$this, 'ajax_test_email']);
+            
+            // Add AJAX endpoint for clearing logs
+            add_action('wp_ajax_mailwp_clear_logs', [$this, 'ajax_clear_logs']);
         }
     }
     
@@ -518,6 +540,12 @@ class MailWP_Admin {
         
         $result = wp_mail($email, $subject, $message, $headers);
         
+        // Log the test email attempt
+        global $mailwp_service;
+        if ($mailwp_service && $mailwp_service->logs) {
+            $mailwp_service->logs->log_test_email($email, $result, $result ? '' : 'Test email failed');
+        }
+        
         if ($result) {
             echo '<div class="notice notice-success inline"><p>' . sprintf(__('Test email sent successfully to %s!', 'mailwp'), esc_html($email)) . '</p></div>';
         } else {
@@ -525,6 +553,341 @@ class MailWP_Admin {
         }
         
         wp_die();
+    }
+    
+    /**
+     * AJAX handler for clearing logs
+     */
+    public function ajax_clear_logs() {
+        // Verify nonce
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'mailwp_clear_logs')) {
+            wp_send_json_error(__('Security: Invalid nonce.', 'mailwp'));
+            wp_die();
+        }
+        
+        // Verify permissions
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(__('You do not have sufficient permissions.', 'mailwp'));
+            wp_die();
+        }
+        
+        global $mailwp_service;
+        
+        if (!$mailwp_service || !$mailwp_service->logs) {
+            wp_send_json_error(__('Logs functionality not available.', 'mailwp'));
+            wp_die();
+        }
+        
+        $result = $mailwp_service->logs->clear_all_logs();
+        
+        if ($result) {
+            wp_send_json_success(__('All logs cleared successfully.', 'mailwp'));
+        } else {
+            wp_send_json_error(__('Failed to clear logs.', 'mailwp'));
+        }
+        
+        wp_die();
+    }
+    
+    /**
+     * Render the logs tab
+     */
+    public function render_logs_tab() {
+        global $mailwp_service;
+        
+        if (!$mailwp_service || !$mailwp_service->logs) {
+            echo '<div class="notice notice-error"><p>' . __('Logs functionality not available.', 'mailwp') . '</p></div>';
+            return;
+        }
+        
+        // Get filter parameters
+        $current_page = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
+        $per_page = 50;
+        $search = isset($_GET['log_search']) ? sanitize_text_field($_GET['log_search']) : '';
+        
+        // Get logs
+        $logs_data = $mailwp_service->logs->get_logs([
+            'page' => $current_page,
+            'per_page' => $per_page,
+            'search' => $search
+        ]);
+        
+        $logs = $logs_data['logs'];
+        $total_logs = $logs_data['total_count'];
+        $total_pages = ceil($total_logs / $per_page);
+        ?>
+        
+        <div class="mailwp-logs-container">
+            
+            <!-- Page Header -->
+            <div style="margin: 20px 0;">
+                <h3><?php _e('Email Activity Logs', 'mailwp'); ?></h3>
+                <p class="description">
+                    <?php _e('Track email sending activity, authentication events, and system errors. Logs are automatically cleaned up after 90 days.', 'mailwp'); ?>
+                </p>
+            </div>
+
+            <!-- Search and Actions Section -->
+            <div class="postbox">
+                <div class="inside">
+                    <table class="form-table">
+                        <tr>
+                            <th scope="row">
+                                <label for="log_search"><?php _e('Search Logs', 'mailwp'); ?></label>
+                            </th>
+                            <td>
+                                <form method="get" action="">
+                                    <input type="hidden" name="page" value="mailwp-settings">
+                                    <input type="hidden" name="tab" value="logs">
+                                    
+                                    <div style="display: flex; gap: 10px; align-items: center; max-width: 600px;">
+                                        <input type="text" name="log_search" id="log_search" value="<?php echo esc_attr($search); ?>" 
+                                               placeholder="<?php _e('Search by keywords, email addresses, messages...', 'mailwp'); ?>" 
+                                               class="regular-text" style="flex: 1;">
+                                        <button type="submit" class="button button-primary"><?php _e('Search', 'mailwp'); ?></button>
+                                        <?php if (!empty($search)): ?>
+                                            <a href="?page=mailwp-settings&tab=logs" class="button"><?php _e('Clear', 'mailwp'); ?></a>
+                                        <?php endif; ?>
+                                    </div>
+                                </form>
+                                <p class="description">
+                                    <?php _e('Search through log messages, email addresses, subjects, and error details.', 'mailwp'); ?>
+                                </p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><?php _e('Actions', 'mailwp'); ?></th>
+                            <td>
+                                <button type="button" class="button button-secondary" id="mailwp-clear-logs">
+                                    <?php _e('Clear All Logs', 'mailwp'); ?>
+                                </button>
+                                <span class="spinner" id="mailwp-logs-spinner" style="float: none; margin-left: 10px;"></span>
+                                <p class="description">
+                                    <?php _e('Permanently delete all log entries. This action cannot be undone.', 'mailwp'); ?>
+                                </p>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Results Info -->
+            <?php if (!empty($search)): ?>
+                <div class="notice notice-info">
+                    <p>
+                        <strong><?php printf(__('Search Results: %d logs found for "%s"', 'mailwp'), $total_logs, esc_html($search)); ?></strong>
+                    </p>
+                </div>
+            <?php elseif ($total_logs > 0): ?>
+                <div style="margin: 15px 0;">
+                    <p class="description">
+                        <?php printf(__('Showing %d total log entries', 'mailwp'), $total_logs); ?>
+                    </p>
+                </div>
+            <?php endif; ?>
+            
+            <!-- Logs Table -->
+            <div class="mailwp-logs-table-container">
+                <?php if (empty($logs)): ?>
+                    <div class="notice notice-info">
+                        <p>
+                            <?php if (!empty($search)): ?>
+                                <?php _e('No logs found matching your search criteria.', 'mailwp'); ?>
+                            <?php else: ?>
+                                <?php _e('No logs found. Logs will appear here when emails are sent or when authentication events occur.', 'mailwp'); ?>
+                            <?php endif; ?>
+                        </p>
+                    </div>
+                <?php else: ?>
+                    <!-- Table Container with WordPress styling -->
+                    <div style="background: #fff; border: 1px solid #c3c4c7; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+                        <table class="wp-list-table widefat fixed striped">
+                        <thead>
+                            <tr>
+                                <th width="120"><?php _e('Date/Time', 'mailwp'); ?></th>
+                                <th width="80"><?php _e('Level', 'mailwp'); ?></th>
+                                <th width="100"><?php _e('Type', 'mailwp'); ?></th>
+                                <th><?php _e('Message', 'mailwp'); ?></th>
+                                <th width="200"><?php _e('Email/Details', 'mailwp'); ?></th>
+                                <th width="80"><?php _e('Mailer', 'mailwp'); ?></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($logs as $log): ?>
+                                <tr>
+                                    <td>
+                                        <div style="font-size: 12px;">
+                                            <?php echo esc_html(mysql2date('Y-m-d', $log->created_at)); ?><br>
+                                            <?php echo esc_html(mysql2date('H:i:s', $log->created_at)); ?>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <?php
+                                        $level_colors = [
+                                            'success' => '#00a32a',
+                                            'info' => '#0073aa',
+                                            'warning' => '#dba617',
+                                            'error' => '#d63638'
+                                        ];
+                                        $color = $level_colors[$log->level] ?? '#666';
+                                        ?>
+                                        <span style="color: <?php echo $color; ?>; font-weight: bold;">
+                                            <?php echo esc_html(ucfirst($log->level)); ?>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <?php
+                                        $type_labels = [
+                                            'email_sent' => __('Email Sent', 'mailwp'),
+                                            'email_error' => __('Email Error', 'mailwp'),
+                                            'auth_success' => __('Auth Success', 'mailwp'),
+                                            'auth_error' => __('Auth Error', 'mailwp'),
+                                            'test_email' => __('Test Email', 'mailwp'),
+                                            'token_refresh' => __('Token Refresh', 'mailwp'),
+                                            'config_change' => __('Config Change', 'mailwp')
+                                        ];
+                                        echo esc_html($type_labels[$log->type] ?? $log->type);
+                                        ?>
+                                    </td>
+                                    <td>
+                                        <div style="max-width: 400px; overflow: hidden; text-overflow: ellipsis;">
+                                            <?php echo esc_html($log->message); ?>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <?php if ($log->email_to): ?>
+                                            <div style="font-size: 11px; margin-bottom: 3px;">
+                                                <strong><?php _e('To:', 'mailwp'); ?></strong> <?php echo esc_html($log->email_to); ?>
+                                            </div>
+                                        <?php endif; ?>
+                                        <?php if ($log->email_subject): ?>
+                                            <div style="font-size: 11px; margin-bottom: 3px;">
+                                                <strong><?php _e('Subject:', 'mailwp'); ?></strong> <?php echo esc_html(wp_trim_words($log->email_subject, 5)); ?>
+                                            </div>
+                                        <?php endif; ?>
+                                        <?php if (!empty($log->details)): ?>
+                                            <button type="button" class="button button-small mailwp-show-details" data-details="<?php echo esc_attr(json_encode($log->details)); ?>">
+                                                <?php _e('Details', 'mailwp'); ?>
+                                            </button>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <?php if ($log->mailer_type): ?>
+                                            <span style="font-size: 11px; padding: 2px 6px; background: #f0f0f1; border-radius: 3px;">
+                                                <?php echo esc_html(ucfirst(str_replace('_', ' ', $log->mailer_type))); ?>
+                                            </span>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                        </table>
+                    </div>
+                    
+                    <!-- Pagination -->
+                    <?php if ($total_pages > 1): ?>
+                        <div class="tablenav bottom">
+                            <div class="tablenav-pages">
+                                <span class="displaying-num">
+                                    <?php printf(__('%s items', 'mailwp'), number_format_i18n($total_logs)); ?>
+                                </span>
+                                
+                                <?php
+                                $base_url = admin_url('options-general.php?page=mailwp-settings&tab=logs');
+                                $query_params = [];
+                                if ($search) $query_params['log_search'] = $search;
+                                
+                                if ($current_page > 1) {
+                                    $prev_params = array_merge($query_params, ['paged' => $current_page - 1]);
+                                    $prev_url = add_query_arg($prev_params, $base_url);
+                                    echo '<a class="prev-page button" href="' . esc_url($prev_url) . '">';
+                                    echo '<span class="screen-reader-text">' . __('Previous page') . '</span>';
+                                    echo '<span aria-hidden="true">‹</span>';
+                                    echo '</a>';
+                                } else {
+                                    echo '<span class="tablenav-pages-navspan button disabled" aria-hidden="true">‹</span>';
+                                }
+                                
+                                echo '<span class="paging-input">';
+                                echo '<label for="current-page-selector" class="screen-reader-text">' . __('Current Page') . '</label>';
+                                echo '<input class="current-page" id="current-page-selector" type="text" name="paged" value="' . $current_page . '" size="' . strlen($total_pages) . '" aria-describedby="table-paging">';
+                                echo '<span class="tablenav-paging-text">' . sprintf(__(' of %s', 'mailwp'), '<span class="total-pages">' . number_format_i18n($total_pages) . '</span>') . '</span>';
+                                echo '</span>';
+                                
+                                if ($current_page < $total_pages) {
+                                    $next_params = array_merge($query_params, ['paged' => $current_page + 1]);
+                                    $next_url = add_query_arg($next_params, $base_url);
+                                    echo '<a class="next-page button" href="' . esc_url($next_url) . '">';
+                                    echo '<span class="screen-reader-text">' . __('Next page') . '</span>';
+                                    echo '<span aria-hidden="true">›</span>';
+                                    echo '</a>';
+                                } else {
+                                    echo '<span class="tablenav-pages-navspan button disabled" aria-hidden="true">›</span>';
+                                }
+                                ?>
+                            </div>
+                        </div>
+                    <?php endif; ?>
+                <?php endif; ?>
+            </div>
+        </div>
+        
+        <!-- Details Modal -->
+        <div id="mailwp-details-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 100000;">
+            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border-radius: 4px; max-width: 80%; max-height: 80%; overflow: auto;">
+                <h3><?php _e('Log Details', 'mailwp'); ?></h3>
+                <div id="mailwp-details-content"></div>
+                <div style="margin-top: 15px; text-align: right;">
+                    <button type="button" class="button button-primary" id="mailwp-close-details"><?php _e('Close', 'mailwp'); ?></button>
+                </div>
+            </div>
+        </div>
+        
+        <script>
+        jQuery(document).ready(function($) {
+            // Clear logs functionality
+            $('#mailwp-clear-logs').on('click', function() {
+                if (!confirm('<?php echo esc_js(__('Are you sure you want to clear all logs? This action cannot be undone.', 'mailwp')); ?>')) {
+                    return;
+                }
+                
+                $('#mailwp-logs-spinner').addClass('is-active');
+                
+                $.post(ajaxurl, {
+                    action: 'mailwp_clear_logs',
+                    nonce: '<?php echo wp_create_nonce('mailwp_clear_logs'); ?>'
+                }, function(response) {
+                    if (response.success) {
+                        location.reload();
+                    } else {
+                        alert('<?php echo esc_js(__('Error clearing logs.', 'mailwp')); ?>');
+                    }
+                    $('#mailwp-logs-spinner').removeClass('is-active');
+                }).fail(function() {
+                    alert('<?php echo esc_js(__('Error clearing logs.', 'mailwp')); ?>');
+                    $('#mailwp-logs-spinner').removeClass('is-active');
+                });
+            });
+            
+            // Show details modal
+            $('.mailwp-show-details').on('click', function() {
+                var details = $(this).data('details');
+                var content = '<pre style="background: #f8f8f8; padding: 10px; border-radius: 3px; overflow: auto; max-height: 400px;">' + 
+                             JSON.stringify(details, null, 2) + '</pre>';
+                $('#mailwp-details-content').html(content);
+                $('#mailwp-details-modal').show();
+            });
+            
+            // Close details modal
+            $('#mailwp-close-details, #mailwp-details-modal').on('click', function(e) {
+                if (e.target === this) {
+                    $('#mailwp-details-modal').hide();
+                }
+            });
+        });
+        </script>
+        
+        <?php
     }
     
     /**

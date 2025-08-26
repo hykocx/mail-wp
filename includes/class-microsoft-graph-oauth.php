@@ -62,7 +62,8 @@ class MailWP_Microsoft_Graph_OAuth {
             'redirect_uri' => $redirect_uri,
             'scope' => implode(' ', self::REQUIRED_SCOPES),
             'state' => $state,
-            'response_mode' => 'query'
+            'response_mode' => 'query',
+            'prompt' => 'select_account'  // Force account selection
         ];
         
         return self::AUTHORITY_URL . '/' . $tenant_id . '/oauth2/v2.0/authorize?' . http_build_query($params);
@@ -127,6 +128,12 @@ class MailWP_Microsoft_Graph_OAuth {
                 'error'
             );
             return;
+        }
+        
+        // Log successful authorization
+        global $mailwp_service;
+        if ($mailwp_service && $mailwp_service->logs) {
+            $mailwp_service->logs->log_auth_success('Microsoft OAuth');
         }
         
         $this->redirect_with_message(__('Authorization successful!', 'mailwp'), 'success');
@@ -236,7 +243,15 @@ class MailWP_Microsoft_Graph_OAuth {
         );
         
         if (is_wp_error($response)) {
-            error_log('MailWP - Token refresh failed: ' . $response->get_error_message());
+            $error_message = 'Token refresh failed: ' . $response->get_error_message();
+            error_log('MailWP - ' . $error_message);
+            
+            // Log token refresh failure
+            global $mailwp_service;
+            if ($mailwp_service && $mailwp_service->logs) {
+                $mailwp_service->logs->log_token_refresh(false, $response->get_error_message());
+            }
+            
             return false;
         }
         
@@ -244,7 +259,15 @@ class MailWP_Microsoft_Graph_OAuth {
         $data = json_decode($body, true);
         
         if (json_last_error() !== JSON_ERROR_NONE || isset($data['error'])) {
-            error_log('MailWP - Token refresh error: ' . ($data['error_description'] ?? 'Invalid JSON'));
+            $error_message = $data['error_description'] ?? 'Invalid JSON';
+            error_log('MailWP - Token refresh error: ' . $error_message);
+            
+            // Log token refresh failure
+            global $mailwp_service;
+            if ($mailwp_service && $mailwp_service->logs) {
+                $mailwp_service->logs->log_token_refresh(false, $error_message);
+            }
+            
             return false;
         }
         
@@ -262,6 +285,12 @@ class MailWP_Microsoft_Graph_OAuth {
         if (isset($data['expires_in'])) {
             $expires_at = time() + intval($data['expires_in']) - 300; // 5 minutes buffer
             update_option('mailwp_msauth_token_expires', $expires_at);
+        }
+        
+        // Log successful token refresh
+        global $mailwp_service;
+        if ($mailwp_service && $mailwp_service->logs) {
+            $mailwp_service->logs->log_token_refresh(true);
         }
         
         return true;
@@ -448,6 +477,27 @@ class MailWP_Microsoft_Graph_OAuth {
                 wp_die(__('Security check failed.', 'mailwp'));
             }
             
+            $auth_url = $this->get_authorization_url();
+            if (empty($auth_url)) {
+                $this->redirect_with_message(__('Please configure Client ID and Tenant ID first.', 'mailwp'), 'error');
+                return;
+            }
+            
+            wp_redirect($auth_url);
+            exit;
+        }
+        
+        if ($action === 'change_msauth_account') {
+            if (!wp_verify_nonce($_GET['_wpnonce'], 'change_msauth_account')) {
+                wp_die(__('Security check failed.', 'mailwp'));
+            }
+            
+            // Revoke current tokens first
+            delete_option('mailwp_msauth_access_token');
+            delete_option('mailwp_msauth_refresh_token');
+            delete_option('mailwp_msauth_token_expires');
+            
+            // Then redirect to authorization with forced account selection
             $auth_url = $this->get_authorization_url();
             if (empty($auth_url)) {
                 $this->redirect_with_message(__('Please configure Client ID and Tenant ID first.', 'mailwp'), 'error');

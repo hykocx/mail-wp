@@ -32,6 +32,9 @@ require_once plugin_dir_path(__FILE__) . '/admin/admin.php';
 // Include Microsoft Graph OAuth functionality
 require_once plugin_dir_path(__FILE__) . '/includes/class-microsoft-graph-oauth.php';
 
+// Include logs functionality
+require_once plugin_dir_path(__FILE__) . '/includes/class-mailwp-logs.php';
+
 // Import PHPMailer namespace
 use PHPMailer\PHPMailer\PHPMailer;
 
@@ -44,9 +47,18 @@ class Hy_MailWP_Service {
     public $microsoft_oauth;
     
     /**
+     * Logs instance
+     * @var MailWP_Logs
+     */
+    public $logs;
+    
+    /**
      * Constructor - initializes the plugin
      */
     public function __construct() {
+        // Initialize logs
+        $this->logs = new MailWP_Logs();
+        
         // Initialize Microsoft Graph OAuth
         $this->microsoft_oauth = new MailWP_Microsoft_Graph_OAuth();
         
@@ -58,6 +70,9 @@ class Hy_MailWP_Service {
         
         // Log email failures
         add_action('wp_mail_failed', [$this, 'log_email_error']);
+        
+        // Log successful SMTP emails
+        add_filter('wp_mail', [$this, 'log_smtp_email_success'], 999, 1);
     }
 
     /**
@@ -77,8 +92,10 @@ class Hy_MailWP_Service {
         
         // Check if Microsoft Graph OAuth is configured and authorized
         if (!$this->microsoft_oauth->is_configured() || !$this->microsoft_oauth->is_authorized()) {
-            $this->log_message('error', 'Microsoft Graph OAuth not properly configured or authorized');
-            return new WP_Error('mailwp_not_configured', 'Microsoft Graph OAuth not properly configured or authorized');
+            $error_message = 'Microsoft Graph OAuth not properly configured or authorized';
+            $this->log_message('error', $error_message);
+            $this->logs->log_email_error($error_message, $atts);
+            return new WP_Error('mailwp_not_configured', $error_message);
         }
         
         // Extract arguments
@@ -122,11 +139,14 @@ class Hy_MailWP_Service {
         $result = $this->microsoft_oauth->send_email($email_data);
         
         if (is_wp_error($result)) {
-            $this->log_message('error', 'Microsoft Graph API error: ' . $result->get_error_message());
+            $error_message = 'Microsoft Graph API error: ' . $result->get_error_message();
+            $this->log_message('error', $error_message);
+            $this->logs->log_email_error($result->get_error_message(), $email_data);
             return $result;
         }
         
         $this->log_message('info', 'Email sent successfully via Microsoft Graph API');
+        $this->logs->log_email_sent($email_data);
         return true; // Short-circuit wp_mail() - email was handled
     }
 
@@ -136,6 +156,12 @@ class Hy_MailWP_Service {
      * @param PHPMailer $phpmailer The PHPMailer instance
      */
     public function configure_smtp($phpmailer) {
+        // Only configure if we're using SMTP
+        $mailer_type = get_option('mailwp_mailer_type', 'smtp');
+        if ($mailer_type !== 'smtp') {
+            return;
+        }
+        
         $phpmailer->isSMTP();
         $phpmailer->Host = get_option('mailwp_smtp_host', '');
         $phpmailer->Port = get_option('mailwp_smtp_port', '587');
@@ -164,6 +190,8 @@ class Hy_MailWP_Service {
         if (!empty($sender_email)) {
             $phpmailer->From = $sender_email;
         }
+        
+
     }
 
     /**
@@ -172,9 +200,45 @@ class Hy_MailWP_Service {
      * @param \WP_Error $wp_error WordPress error
      */
     public function log_email_error($wp_error) {
+        $error_message = $wp_error->get_error_message();
+        
         if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('MailWP - Email sending error: ' . $wp_error->get_error_message());
+            error_log('MailWP - Email sending error: ' . $error_message);
         }
+        
+        // Log to database
+        $this->logs->log_email_error($error_message);
+    }
+
+    /**
+     * Log successful SMTP emails
+     * 
+     * @param array $mail_data Array of mail arguments
+     * @return array Unchanged mail data
+     */
+    public function log_smtp_email_success($mail_data) {
+        $mailer_type = get_option('mailwp_mailer_type', 'smtp');
+        
+        // Only log for SMTP (not Microsoft Graph, as that's handled separately)
+        if ($mailer_type === 'smtp') {
+            $email_data = [
+                'to' => $mail_data['to'] ?? '',
+                'subject' => $mail_data['subject'] ?? '',
+                'message' => $mail_data['message'] ?? '',
+                'headers' => $mail_data['headers'] ?? [],
+                'attachments' => $mail_data['attachments'] ?? []
+            ];
+            
+            // Schedule logging after the email is actually sent
+            add_action('shutdown', function() use ($email_data) {
+                // Check if there was an error during sending
+                if (!did_action('wp_mail_failed')) {
+                    $this->logs->log_email_sent($email_data);
+                }
+            });
+        }
+        
+        return $mail_data;
     }
 
     /**
