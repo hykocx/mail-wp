@@ -468,6 +468,12 @@ class MailWP_Admin {
                                     <p class="description">
                                         <?php _e('Protects against database leaks by encrypting sensitive data (passwords, tokens, IDs). Uses WordPress security keys for encryption.', 'mailwp'); ?>
                                     </p>
+                                    <div style="background: #e7f3ff; border: 1px solid #b3d9ff; padding: 10px; border-radius: 3px; margin-top: 10px;">
+                                        <p style="margin: 0; color: #0066cc; font-size: 13px;">
+                                            <strong><?php _e('Important Note', 'mailwp'); ?>:</strong><br>
+                                            <?php _e('Some security plugins like Defender automatically regenerate WordPress security keys. If you don\'t want to be automatically logged out, disable this option in your security plugin settings.', 'mailwp'); ?>
+                                        </p>
+                                    </div>
                                 <?php else: ?>
                                     <p style="color: #d63638;">
                                         <strong><?php _e('Encryption not available', 'mailwp'); ?></strong><br>
