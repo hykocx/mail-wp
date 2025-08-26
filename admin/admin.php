@@ -67,6 +67,16 @@ class MailWP_Admin {
      * Register the plugin settings
      */
     public function register_settings() {
+        // Encryption Settings
+        register_setting(
+            'mailwp_settings',
+            'mailwp_enable_encryption',
+            [
+                'sanitize_callback' => [$this, 'sanitize_encryption_option'],
+                'default' => false
+            ]
+        );
+
         register_setting(
             'mailwp_settings',
             'mailwp_mailer_type',
@@ -181,6 +191,44 @@ class MailWP_Admin {
     }
     
     /**
+     * Sanitize encryption option and handle migration
+     * 
+     * @param mixed $value New value
+     * @return bool
+     */
+    public function sanitize_encryption_option($value) {
+        $old_value = get_option('mailwp_enable_encryption', false);
+        $new_value = (bool) $value;
+        
+        // If encryption is being enabled
+        if (!$old_value && $new_value) {
+            // Migrate existing data to encrypted format
+            if (MailWP_Encryption::is_encryption_possible()) {
+                MailWP_Encryption::migrate_to_encrypted();
+                
+                // Log the change
+                global $mailwp_service;
+                if ($mailwp_service && $mailwp_service->logs) {
+                    $mailwp_service->logs->log_config_change('Data Encryption', 'Disabled', 'Enabled');
+                }
+            }
+        }
+        // If encryption is being disabled
+        elseif ($old_value && !$new_value) {
+            // Migrate encrypted data back to unencrypted format
+            MailWP_Encryption::migrate_to_unencrypted();
+            
+            // Log the change
+            global $mailwp_service;
+            if ($mailwp_service && $mailwp_service->logs) {
+                $mailwp_service->logs->log_config_change('Data Encryption', 'Enabled', 'Disabled');
+            }
+        }
+        
+        return $new_value;
+    }
+    
+    /**
      * Preserve OAuth tokens when OAuth config changes
      * 
      * @param mixed $value New value
@@ -292,7 +340,12 @@ class MailWP_Admin {
                                 <th scope="row"><?php _e('SMTP Password', 'mailwp'); ?></th>
                                 <td>
                                     <input type="password" name="mailwp_smtp_password" value="<?php echo esc_attr(get_option('mailwp_smtp_password')); ?>" class="regular-text" />
-                                    <p class="description"><?php _e('Your SMTP password.', 'mailwp'); ?></p>
+                                    <p class="description">
+                                        <?php _e('Your SMTP password.', 'mailwp'); ?>
+                                        <?php if (get_option('mailwp_enable_encryption', false)): ?>
+                                            <span style="color: #00a32a; font-size: 12px;">🔒 <?php _e('Encrypted in database', 'mailwp'); ?></span>
+                                        <?php endif; ?>
+                                    </p>
                                 </td>
                             </tr>
                             <tr valign="top">
@@ -343,7 +396,12 @@ class MailWP_Admin {
                                 <th scope="row"><?php _e('Client Secret', 'mailwp'); ?></th>
                                 <td>
                                     <input type="password" name="mailwp_msauth_client_secret" value="<?php echo esc_attr(get_option('mailwp_msauth_client_secret')); ?>" class="regular-text" />
-                                    <p class="description"><?php _e('Your Azure AD Application Client Secret.', 'mailwp'); ?></p>
+                                    <p class="description">
+                                        <?php _e('Your Azure AD Application Client Secret.', 'mailwp'); ?>
+                                        <?php if (get_option('mailwp_enable_encryption', false)): ?>
+                                            <span style="color: #00a32a; font-size: 12px;">🔒 <?php _e('Encrypted in database', 'mailwp'); ?></span>
+                                        <?php endif; ?>
+                                    </p>
                                 </td>
                             </tr>
                             <tr valign="top">
@@ -388,6 +446,37 @@ class MailWP_Admin {
                             </tr>
                         </table>
                     </div>
+
+                    <!-- Encryption Settings Section -->
+                    <h3><?php _e('Security Settings', 'mailwp'); ?></h3>
+                    <table class="form-table">
+                        <tr valign="top">
+                            <th scope="row"><?php _e('Data Encryption', 'mailwp'); ?></th>
+                            <td>
+                                <?php $encryption_possible = MailWP_Encryption::is_encryption_possible(); ?>
+                                <?php if ($encryption_possible): ?>
+                                    <fieldset>
+                                        <label for="mailwp_enable_encryption">
+                                            <input type="checkbox" 
+                                                   name="mailwp_enable_encryption" 
+                                                   id="mailwp_enable_encryption" 
+                                                   value="1" 
+                                                   <?php checked(get_option('mailwp_enable_encryption', false), true); ?> />
+                                            <?php _e('Enable data encryption', 'mailwp'); ?>
+                                        </label>
+                                    </fieldset>
+                                    <p class="description">
+                                        <?php _e('Protects against database leaks by encrypting sensitive data (passwords, tokens, IDs). Uses WordPress security keys for encryption.', 'mailwp'); ?>
+                                    </p>
+                                <?php else: ?>
+                                    <p style="color: #d63638;">
+                                        <strong><?php _e('Encryption not available', 'mailwp'); ?></strong><br>
+                                        <?php _e('WordPress security constants (AUTH_KEY, SECURE_AUTH_KEY, etc.) are not defined in wp-config.php. These constants are required for data encryption.', 'mailwp'); ?>
+                                    </p>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                    </table>
                     
                     <?php submit_button(); ?>
                 </form>

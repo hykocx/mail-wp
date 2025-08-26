@@ -13,8 +13,9 @@ Replace WordPress email function with SMTP or other email providers.
 ## Configuration
 
 1. Go to the MailWP settings page.
-2. Enter your SMTP or other email provider credentials.
-3. Save the settings.
+2. **Security Settings**: Enable data encryption to protect sensitive information like passwords and tokens in your database.
+3. **Email Configuration**: Choose between SMTP or Microsoft Graph and enter your credentials.
+4. Save the settings.
 
 ## Contributing
 

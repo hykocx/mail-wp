@@ -35,6 +35,9 @@ require_once plugin_dir_path(__FILE__) . '/includes/class-microsoft-graph-oauth.
 // Include logs functionality
 require_once plugin_dir_path(__FILE__) . '/includes/class-mailwp-logs.php';
 
+// Include encryption functionality
+require_once plugin_dir_path(__FILE__) . '/includes/class-mailwp-encryption.php';
+
 // Import PHPMailer namespace
 use PHPMailer\PHPMailer\PHPMailer;
 
@@ -73,6 +76,47 @@ class Hy_MailWP_Service {
         
         // Log successful SMTP emails
         add_filter('wp_mail', [$this, 'log_smtp_email_success'], 999, 1);
+        
+        // Setup encryption hooks
+        $this->setup_encryption_hooks();
+    }
+
+    /**
+     * Setup encryption hooks for sensitive data
+     */
+    private function setup_encryption_hooks() {
+        $sensitive_options = MailWP_Encryption::get_sensitive_options();
+        
+        foreach ($sensitive_options as $option_name) {
+            // Hook into option updates to encrypt before saving
+            add_filter("pre_update_option_{$option_name}", [$this, 'encrypt_option_value'], 10, 3);
+            
+            // Hook into option retrieval to decrypt after loading
+            add_filter("option_{$option_name}", [$this, 'decrypt_option_value'], 10, 2);
+        }
+    }
+    
+    /**
+     * Encrypt option value before saving to database
+     * 
+     * @param mixed $value New value
+     * @param mixed $old_value Old value
+     * @param string $option Option name
+     * @return mixed
+     */
+    public function encrypt_option_value($value, $old_value, $option) {
+        return MailWP_Encryption::maybe_encrypt_option($option, $value);
+    }
+    
+    /**
+     * Decrypt option value after loading from database
+     * 
+     * @param mixed $value Option value
+     * @param string $option Option name
+     * @return mixed
+     */
+    public function decrypt_option_value($value, $option) {
+        return MailWP_Encryption::maybe_decrypt_option($option, $value);
     }
 
     /**
