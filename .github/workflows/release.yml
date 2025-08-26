@@ -19,53 +19,19 @@ jobs:
         with:
           fetch-depth: 0
           
-      - name: Get commit history since last release
-        id: commit_history
-        shell: bash
-        run: |
-          # Fetch all tags to ensure we have the complete history
-          git fetch --tags --force
-          
-          # Get the last release tag
-          LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-          
-          # If no previous tag exists or can't be found
-          if [ -z "$LAST_TAG" ]; then
-            echo "No previous tag found, getting all commits"
-            COMMIT_HISTORY=$(git log --pretty=format:"- %s (%h)" -n 20 | cat)
-          else
-            echo "Found previous tag: $LAST_TAG"
-            # Get commits since last tag to current tag
-            CURRENT_TAG="${{ github.event.release.tag_name }}"
-            echo "Current tag: $CURRENT_TAG"
-            COMMIT_HISTORY=$(git log --pretty=format:"- %s (%h)" "$LAST_TAG..$CURRENT_TAG" | cat)
-            
-            # If no commits found between tags, get recent commits
-            if [ -z "$COMMIT_HISTORY" ]; then
-              echo "No commits found between tags, getting recent commits"
-              COMMIT_HISTORY=$(git log --pretty=format:"- %s (%h)" -n 20 | cat)
-            fi
-          fi
-          
-          echo "COMMIT_HISTORY<<EOF" >> $GITHUB_OUTPUT
-          echo "$COMMIT_HISTORY" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Update Release with Processing Message
+
+      - name: Add Processing Message to Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.event.release.tag_name }}
           name: ${{ github.event.release.name }}
           body: |
-            ### Build Information
-            - Build Number: ${{ github.run_number }}
-            - Commit: ${{ github.sha }}
-            - Date: ${{ github.event.release.created_at }}
+            🔄 **Files are being generated... Please wait.**
             
-            ### Changes
-            ${{ steps.commit_history.outputs.COMMIT_HISTORY }}
+            ---
             
-            ### Files are being generated...
+            ${{ github.event.release.body }}
           draft: false
           prerelease: ${{ github.event.release.prerelease }}
         env:
@@ -86,16 +52,16 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/}
           
           # Clean any existing build directory
-          rm -rf build_tmp mailwp
+          rm -rf build_tmp mail-wp
           
           # Create a temporary directory for the build
-          mkdir -p build_tmp/mailwp
+          mkdir -p build_tmp/mail-wp
           
-          # Copy all relevant files to the mailwp directory within temp
-          rsync -av --progress ./ build_tmp/mailwp/ --exclude .git --exclude .github --exclude .gitignore --exclude "*.zip" --exclude "*.log" --exclude "node_modules" --exclude ".DS_Store" --exclude build_tmp
+          # Copy all relevant files to the mail-wp directory within temp
+          rsync -av --progress ./ build_tmp/mail-wp/ --exclude .git --exclude .github --exclude .gitignore --exclude "*.zip" --exclude "*.log" --exclude "node_modules" --exclude ".DS_Store" --exclude build_tmp
           
-          # Create the zip file with a single mailwp directory structure
-          cd build_tmp && zip -r ../mailwp-$VERSION.zip . && cd ..
+          # Create the zip file with a single mail-wp directory structure
+          cd build_tmp && zip -r ../mail-wp-$VERSION.zip . && cd ..
           
           # Clean up temp directory
           rm -rf build_tmp
@@ -103,8 +69,8 @@ jobs:
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mailwp-plugin
-          path: mailwp-${{ github.ref_name }}.zip
+          name: mail-wp-plugin
+          path: mail-wp-${{ github.ref_name }}.zip
           retention-days: 1
           
   release:
@@ -117,66 +83,36 @@ jobs:
         with:
           fetch-depth: 0
         
-      - name: Get commit history since last release
-        id: commit_history
-        shell: bash
-        run: |
-          # Fetch all tags to ensure we have the complete history
-          git fetch --tags --force
-          
-          # Get the last release tag
-          LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-          
-          # If no previous tag exists or can't be found
-          if [ -z "$LAST_TAG" ]; then
-            echo "No previous tag found, getting all commits"
-            COMMIT_HISTORY=$(git log --pretty=format:"- %s (%h)" -n 20 | cat)
-          else
-            echo "Found previous tag: $LAST_TAG"
-            # Get commits since last tag to current tag
-            CURRENT_TAG="${{ github.event.release.tag_name }}"
-            echo "Current tag: $CURRENT_TAG"
-            COMMIT_HISTORY=$(git log --pretty=format:"- %s (%h)" "$LAST_TAG..$CURRENT_TAG" | cat)
-            
-            # If no commits found between tags, get recent commits
-            if [ -z "$COMMIT_HISTORY" ]; then
-              echo "No commits found between tags, getting recent commits"
-              COMMIT_HISTORY=$(git log --pretty=format:"- %s (%h)" -n 20 | cat)
-            fi
-          fi
-          
-          echo "COMMIT_HISTORY<<EOF" >> $GITHUB_OUTPUT
-          echo "$COMMIT_HISTORY" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          
+
       - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          name: mailwp-plugin
+          name: mail-wp-plugin
           path: release-files
           
       - name: List release files
         run: ls -la release-files/
           
+      - name: Get current release body
+        id: get_release
+        run: |
+          RELEASE_BODY=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ github.event.release.tag_name }}" \
+            | jq -r '.body')
+          
+          # Remove the processing message and separator
+          UPDATED_BODY=$(echo "$RELEASE_BODY" | sed '/🔄 \*\*Files are being generated\.\.\. Please wait\.\*\*/,/---/d' | sed '/^$/d')
+          
+          echo "UPDATED_BODY<<EOF" >> $GITHUB_OUTPUT
+          echo "$UPDATED_BODY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Update Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.event.release.tag_name }}
           name: ${{ github.event.release.name }}
-          body: |
-            ### Build Information
-            - Build Number: ${{ github.run_number }}
-            - Commit: ${{ github.sha }}
-            - Date: ${{ github.event.release.created_at }}
-            
-            ### Changes
-            ${{ steps.commit_history.outputs.COMMIT_HISTORY }}
-            
-            ### Installation
-            Download and install the WordPress plugin zip file.
-            
-            ### Support
-            For support or to report issues, please visit our GitHub repository.
+          body: ${{ steps.get_release.outputs.UPDATED_BODY }}
           files: release-files/*
           draft: false
           prerelease: ${{ github.event.release.prerelease }}
