@@ -51,7 +51,18 @@ class MailWP_Microsoft_Graph_OAuth {
         }
         
         $redirect_uri = $this->get_redirect_uri();
-        $state = wp_generate_password(32, false);
+        
+        // Générer le state avec l'URL du site client si URL personnalisée
+        $custom_redirect_uri = get_option('mailwp_msauth_custom_redirect_uri', '');
+        if (!empty($custom_redirect_uri)) {
+            $state_data = [
+                'nonce' => wp_generate_password(32, false),
+                'client_site' => home_url()
+            ];
+            $state = base64_encode(json_encode($state_data));
+        } else {
+            $state = wp_generate_password(32, false);
+        }
         
         // Store state for verification
         set_transient('mailwp_oauth_state', $state, 600); // 10 minutes
@@ -75,15 +86,53 @@ class MailWP_Microsoft_Graph_OAuth {
      * @return string Redirect URI
      */
     public function get_redirect_uri() {
+        $custom_redirect_uri = get_option('mailwp_msauth_custom_redirect_uri', '');
+        
+        if (!empty($custom_redirect_uri)) {
+            // Pour une URL personnalisée, retourner l'URL exacte (sans paramètres)
+            // L'URL du site client sera passée dans le paramètre 'state'
+            return $custom_redirect_uri;
+        }
+        
         return admin_url('options-general.php?page=mailwp-settings&oauth_callback=1');
     }
+    
+    /**
+     * Check if current request is using a custom redirect URI
+     * 
+     * @return bool True if using custom redirect URI
+     */
+    public function is_using_custom_redirect_uri() {
+        $custom_redirect_uri = get_option('mailwp_msauth_custom_redirect_uri', '');
+        return !empty($custom_redirect_uri);
+    }
+    
+    /**
+     * Get the internal callback URL (always points to this WordPress site)
+     * 
+     * @return string Internal callback URL
+     */
+    public function get_internal_callback_uri() {
+        return admin_url('options-general.php?page=mailwp-settings&oauth_callback=1');
+    }
+    
     
     /**
      * Handle OAuth callback from Microsoft
      */
     public function handle_oauth_callback() {
-        if (!isset($_GET['oauth_callback']) || $_GET['oauth_callback'] !== '1') {
-            return;
+        // For custom redirect URIs, we need to handle the callback differently
+        // The custom page should redirect back to our default callback URL with the auth code
+        if ($this->is_using_custom_redirect_uri()) {
+            // Check if we're receiving a redirected callback from custom URI
+            if (!isset($_GET['oauth_callback']) || $_GET['oauth_callback'] !== '1') {
+                return;
+            }
+        } else {
+            // Standard callback handling
+            if (!isset($_GET['oauth_callback']) || $_GET['oauth_callback'] !== '1') {
+                return;
+            }
         }
         
         if (!current_user_can('manage_options')) {

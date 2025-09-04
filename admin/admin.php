@@ -31,6 +31,7 @@ class MailWP_Admin {
         add_action('pre_update_option_mailwp_msauth_client_id', [$this, 'preserve_oauth_tokens'], 10, 3);
         add_action('pre_update_option_mailwp_msauth_tenant_id', [$this, 'preserve_oauth_tokens'], 10, 3);
         add_action('pre_update_option_mailwp_msauth_client_secret', [$this, 'preserve_oauth_tokens'], 10, 3);
+        add_action('pre_update_option_mailwp_msauth_custom_redirect_uri', [$this, 'preserve_oauth_tokens'], 10, 3);
         
         // Add hook to show stored error messages after redirect
         add_action('admin_notices', [$this, 'show_stored_messages']);
@@ -182,6 +183,15 @@ class MailWP_Admin {
             'mailwp_msauth_from_name',
             [
                 'sanitize_callback' => 'sanitize_text_field'
+            ]
+        );
+
+        // Custom redirect URI for agencies
+        register_setting(
+            'mailwp_settings',
+            'mailwp_msauth_custom_redirect_uri',
+            [
+                'sanitize_callback' => 'esc_url_raw'
             ]
         );
 
@@ -419,14 +429,46 @@ class MailWP_Admin {
                                 </td>
                             </tr>
                             <tr valign="top">
+                                <th scope="row"><?php _e('Redirect URI', 'mailwp'); ?></th>
+                                <td>
+                                    <?php
+                                    $default_redirect_uri = admin_url('options-general.php?page=mailwp-settings&oauth_callback=1');
+                                    $custom_redirect_uri = get_option('mailwp_msauth_custom_redirect_uri', '');
+                                    $current_redirect_uri = !empty($custom_redirect_uri) ? $custom_redirect_uri : $default_redirect_uri;
+                                    ?>
+                                    <div style="margin-bottom: 10px;">
+                                        <input type="url" 
+                                               name="mailwp_msauth_custom_redirect_uri" 
+                                               id="mailwp_msauth_custom_redirect_uri"
+                                               value="<?php echo esc_attr($custom_redirect_uri); ?>" 
+                                               placeholder="<?php echo esc_attr($default_redirect_uri); ?>"
+                                               class="regular-text" />
+                                        <button type="button" class="button" id="mailwp-reset-redirect-uri">
+                                            <?php _e('Reset to Default', 'mailwp'); ?>
+                                        </button>
+                                    </div>
+                                    <div style="margin-bottom: 10px; padding: 8px; background: #f0f0f1; border-radius: 3px; font-family: monospace; font-size: 12px;">
+                                        <strong><?php _e('Current URI:', 'mailwp'); ?></strong> 
+                                        <span id="mailwp-current-redirect-display"><?php echo esc_html($current_redirect_uri); ?></span>
+                                    </div>
+                                    <p class="description">
+                                        <?php _e('Custom redirect URI. Leave empty to use the default.', 'mailwp'); ?>
+                                        <br><strong><?php _e('Note:', 'mailwp'); ?></strong> 
+                                        <?php _e('You must configure this exact URI in your Azure App Registration settings.', 'mailwp'); ?>
+                                    </p>
+                                </td>
+                            </tr>
+                            <tr valign="top">
                                 <th scope="row"><?php _e('Authorization Status', 'mailwp'); ?></th>
                                 <td>
                                     <?php
                                     $access_token = get_option('mailwp_msauth_access_token');
+                                    $has_custom_redirect = !empty(get_option('mailwp_msauth_custom_redirect_uri', ''));
                                     if (!empty($access_token)): ?>
                                         <p style="color: green;"><strong><?php _e('✓ Authorized', 'mailwp'); ?></strong></p>
                                         <p>
-                                            <a href="<?php echo wp_nonce_url(admin_url('options-general.php?page=mailwp-settings&action=change_msauth_account'), 'change_msauth_account'); ?>" class="button button-primary">
+                                            <a href="<?php echo wp_nonce_url(admin_url('options-general.php?page=mailwp-settings&action=change_msauth_account'), 'change_msauth_account'); ?>" 
+                                               class="button button-primary mailwp-auth-link">
                                                 <?php _e('Change Account', 'mailwp'); ?>
                                             </a>
                                             <a href="<?php echo wp_nonce_url(admin_url('options-general.php?page=mailwp-settings&action=revoke_msauth'), 'revoke_msauth'); ?>" class="button button-secondary">
@@ -436,7 +478,8 @@ class MailWP_Admin {
                                     <?php else: ?>
                                         <p style="color: red;"><strong><?php _e('✗ Not Authorized', 'mailwp'); ?></strong></p>
                                         <p>
-                                            <a href="<?php echo wp_nonce_url(admin_url('options-general.php?page=mailwp-settings&action=authorize_msauth'), 'authorize_msauth'); ?>" class="button button-primary">
+                                            <a href="<?php echo wp_nonce_url(admin_url('options-general.php?page=mailwp-settings&action=authorize_msauth'), 'authorize_msauth'); ?>" 
+                                               class="button button-primary mailwp-auth-link">
                                                 <?php _e('Authorize with Microsoft', 'mailwp'); ?>
                                             </a>
                                         </p>
@@ -489,13 +532,17 @@ class MailWP_Admin {
 
                 <!-- Configuration Guide Section for Microsoft Graph -->
                 <div id="mailwp-microsoft-guide" style="display: <?php echo get_option('mailwp_mailer_type', 'smtp') === 'microsoft_graph' ? 'block' : 'none'; ?>; margin-top: 20px;">
-                    <div class="mailwp-guide-section" style="background: #f9f9f9; border: 1px solid #ddd; border-radius: 5px; padding: 20px;">
-                        <h3 style="margin-top: 0; color: #0073aa;">
-                            <span class="dashicons dashicons-info" style="margin-right: 8px;"></span>
-                            <?php _e('Guide: Creating a Microsoft Azure Application', 'mailwp'); ?>
-                        </h3>
-                        
-                        <div style="background: white; padding: 15px; border-radius: 3px;">
+                    <div class="postbox">
+                        <div class="postbox-header" style="cursor: pointer; padding: 0;" id="mailwp-guide-toggle">
+                            <h2 class="hndle" style="padding: 8px 12px; margin: 0; display: flex; justify-content: space-between; align-items: center;">
+                                <span style="display: flex; align-items: center;">
+                                    <span class="dashicons dashicons-info" style="margin-right: 8px;"></span>
+                                    <?php _e('Guide: Creating a Microsoft Azure Application', 'mailwp'); ?>
+                                </span>
+                                <span class="toggle-indicator" aria-hidden="true" style="font-size: 16px; line-height: 1;" id="mailwp-guide-arrow">▼</span>
+                            </h2>
+                        </div>
+                        <div class="inside" id="mailwp-guide-content" style="display: none;">
                             <p style="margin-top: 0;">
                                 <?php _e('To use Microsoft Graph for sending emails, you need to create an application in Azure Active Directory. Follow these steps:', 'mailwp'); ?>
                             </p>
@@ -522,7 +569,7 @@ class MailWP_Admin {
                                     <ul style="margin: 5px 0 0 20px;">
                                         <li><?php _e('Name: MailWP Plugin (or any name you prefer)', 'mailwp'); ?></li>
                                         <li><?php _e('Supported account types: Accounts in this organizational directory only', 'mailwp'); ?></li>
-                                        <li><?php _e('Redirect URI: Web -', 'mailwp'); ?> <code style="background: #f0f0f0; padding: 2px 4px;"><?php echo esc_html(admin_url('options-general.php?page=mailwp-settings&oauth_callback=1')); ?></code></li>
+                                        <li><?php _e('Redirect URI: Web -', 'mailwp'); ?> <code style="background: #f0f0f0; padding: 2px 4px;" id="mailwp-guide-redirect-uri"><?php echo esc_html($current_redirect_uri); ?></code></li>
                                     </ul>
                                 </li>
                                 
@@ -552,13 +599,23 @@ class MailWP_Admin {
                                 </li>
                             </ol>
                             
-                            <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; border-radius: 3px; margin-top: 15px;">
-                                <strong style="color: #856404;"><?php _e('Important Notes:', 'mailwp'); ?></strong>
-                                <ul style="margin: 5px 0 0 20px; color: #856404;">
+                            <div class="notice notice-warning inline">
+                                <p><strong><?php _e('Important Notes:', 'mailwp'); ?></strong></p>
+                                <ul style="margin: 5px 0 0 20px;">
                                     <li><?php _e('The client secret has an expiration date. Make sure to renew it before it expires.', 'mailwp'); ?></li>
                                     <li><?php _e('The "From Email" address must be a valid email address from your Microsoft 365 organization.', 'mailwp'); ?></li>
                                     <li><?php _e('Make sure the user account used for authorization has permission to send emails on behalf of the "From Email" address.', 'mailwp'); ?></li>
                                 </ul>
+                            </div>
+                            
+                            <div class="notice notice-info inline">
+                                <p><strong><?php _e('For Web Agencies:', 'mailwp'); ?></strong></p>
+                                <p style="margin: 5px 0 0 0; font-size: 13px;">
+                                    <?php _e('You can configure a custom redirect URI above to create a generic authorization page that can be used for all your client sites. This allows you to have a single, branded page that handles Microsoft OAuth callbacks for all your clients.', 'mailwp'); ?>
+                                </p>
+                                <p style="margin: 5px 0 0 0; font-size: 13px;">
+                                    <?php _e('When using a custom redirect URI, make sure to create a page at that URL that redirects back to the specific WordPress site with all the OAuth parameters. An example callback page is included in the plugin source code (exemple-custom-callback.php) that you can use as a starting point.', 'mailwp'); ?>
+                                </p>
                             </div>
                         </div>
                     </div>
@@ -566,6 +623,7 @@ class MailWP_Admin {
 
                 <script>
                 jQuery(document).ready(function($) {
+                    // Handle mailer type switching
                     $('#mailwp_mailer_type').on('change', function() {
                         if ($(this).val() === 'smtp') {
                             $('#smtp_options').show();
@@ -581,6 +639,43 @@ class MailWP_Admin {
                             $('#mailwp-microsoft-guide').hide();
                         }
                     });
+                    
+                    // Handle guide accordion toggle
+                    $('#mailwp-guide-toggle').on('click', function() {
+                        var content = $('#mailwp-guide-content');
+                        var arrow = $('#mailwp-guide-arrow');
+                        
+                        if (content.is(':visible')) {
+                            content.slideUp(300);
+                            arrow.text('▼');
+                        } else {
+                            content.slideDown(300);
+                            arrow.text('▲');
+                        }
+                    });
+                    
+                    // Handle custom redirect URI functionality
+                    var defaultRedirectUri = '<?php echo esc_js($default_redirect_uri); ?>';
+                    
+                    function updateCurrentRedirectDisplay() {
+                        var customUri = $('#mailwp_msauth_custom_redirect_uri').val().trim();
+                        var currentUri = customUri || defaultRedirectUri;
+                        $('#mailwp-current-redirect-display').text(currentUri);
+                        
+                        // Update URI in the guide as well
+                        $('#mailwp-guide-redirect-uri').text(currentUri);
+                    }
+                    
+                    // Update display when field changes
+                    $('#mailwp_msauth_custom_redirect_uri').on('input', updateCurrentRedirectDisplay);
+                    
+                    // Reset to default button
+                    $('#mailwp-reset-redirect-uri').on('click', function() {
+                        $('#mailwp_msauth_custom_redirect_uri').val('').trigger('input');
+                    });
+                    
+                    // Initialize display
+                    updateCurrentRedirectDisplay();
                 });
                 </script>
             <?php elseif ($active_tab === 'test') : ?>
