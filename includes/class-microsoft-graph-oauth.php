@@ -44,9 +44,15 @@ class MailWP_Microsoft_Graph_OAuth {
      */
     public function get_authorization_url() {
         $client_id = get_option('mailwp_msauth_client_id');
+        $tenant_mode = get_option('mailwp_msauth_tenant_mode', 'single');
         $tenant_id = get_option('mailwp_msauth_tenant_id');
         
-        if (empty($client_id) || empty($tenant_id)) {
+        if (empty($client_id)) {
+            return '';
+        }
+        
+        // For single-tenant mode, tenant_id is required
+        if ($tenant_mode === 'single' && empty($tenant_id)) {
             return '';
         }
         
@@ -77,7 +83,10 @@ class MailWP_Microsoft_Graph_OAuth {
             'prompt' => 'select_account'  // Force account selection
         ];
         
-        return self::AUTHORITY_URL . '/' . $tenant_id . '/oauth2/v2.0/authorize?' . http_build_query($params);
+        // Use either specific tenant ID or "common" based on tenant mode
+        $endpoint_tenant = ($tenant_mode === 'multi') ? 'common' : $tenant_id;
+        
+        return self::AUTHORITY_URL . '/' . $endpoint_tenant . '/oauth2/v2.0/authorize?' . http_build_query($params);
     }
     
     /**
@@ -197,10 +206,16 @@ class MailWP_Microsoft_Graph_OAuth {
     private function exchange_code_for_tokens($code) {
         $client_id = get_option('mailwp_msauth_client_id');
         $client_secret = get_option('mailwp_msauth_client_secret');
+        $tenant_mode = get_option('mailwp_msauth_tenant_mode', 'single');
         $tenant_id = get_option('mailwp_msauth_tenant_id');
         
-        if (empty($client_id) || empty($client_secret) || empty($tenant_id)) {
+        if (empty($client_id) || empty($client_secret)) {
             return new WP_Error('missing_config', 'Missing OAuth configuration.');
+        }
+        
+        // For single-tenant mode, tenant_id is required
+        if ($tenant_mode === 'single' && empty($tenant_id)) {
+            return new WP_Error('missing_config', 'Tenant ID is required for single-tenant mode.');
         }
         
         $body = [
@@ -212,8 +227,11 @@ class MailWP_Microsoft_Graph_OAuth {
             'scope' => implode(' ', self::REQUIRED_SCOPES)
         ];
         
+        // Use either specific tenant ID or "common" based on tenant mode  
+        $endpoint_tenant = ($tenant_mode === 'multi') ? 'common' : $tenant_id;
+        
         $response = wp_remote_post(
-            self::AUTHORITY_URL . '/' . $tenant_id . '/oauth2/v2.0/token',
+            self::AUTHORITY_URL . '/' . $endpoint_tenant . '/oauth2/v2.0/token',
             [
                 'body' => $body,
                 'headers' => [
@@ -265,10 +283,16 @@ class MailWP_Microsoft_Graph_OAuth {
     public function refresh_access_token() {
         $client_id = get_option('mailwp_msauth_client_id');
         $client_secret = get_option('mailwp_msauth_client_secret');
+        $tenant_mode = get_option('mailwp_msauth_tenant_mode', 'single');
         $tenant_id = get_option('mailwp_msauth_tenant_id');
         $refresh_token = get_option('mailwp_msauth_refresh_token');
         
-        if (empty($client_id) || empty($client_secret) || empty($tenant_id) || empty($refresh_token)) {
+        if (empty($client_id) || empty($client_secret) || empty($refresh_token)) {
+            return false;
+        }
+        
+        // For single-tenant mode, tenant_id is required
+        if ($tenant_mode === 'single' && empty($tenant_id)) {
             return false;
         }
         
@@ -280,8 +304,11 @@ class MailWP_Microsoft_Graph_OAuth {
             'scope' => implode(' ', self::REQUIRED_SCOPES)
         ];
         
+        // Use either specific tenant ID or "common" based on tenant mode  
+        $endpoint_tenant = ($tenant_mode === 'multi') ? 'common' : $tenant_id;
+        
         $response = wp_remote_post(
-            self::AUTHORITY_URL . '/' . $tenant_id . '/oauth2/v2.0/token',
+            self::AUTHORITY_URL . '/' . $endpoint_tenant . '/oauth2/v2.0/token',
             [
                 'body' => $body,
                 'headers' => [
@@ -611,11 +638,21 @@ class MailWP_Microsoft_Graph_OAuth {
      */
     public function is_configured() {
         $client_id = get_option('mailwp_msauth_client_id');
+        $tenant_mode = get_option('mailwp_msauth_tenant_mode', 'single');
         $tenant_id = get_option('mailwp_msauth_tenant_id');
         $client_secret = get_option('mailwp_msauth_client_secret');
         $from_email = get_option('mailwp_msauth_from_email');
         
-        return !empty($client_id) && !empty($tenant_id) && !empty($client_secret) && !empty($from_email);
+        // Basic requirements
+        $basic_config = !empty($client_id) && !empty($client_secret) && !empty($from_email);
+        
+        // For single-tenant mode, tenant_id is also required
+        if ($tenant_mode === 'single') {
+            return $basic_config && !empty($tenant_id);
+        }
+        
+        // For multi-tenant mode, tenant_id is optional
+        return $basic_config;
     }
     
     /**

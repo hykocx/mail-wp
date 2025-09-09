@@ -32,6 +32,7 @@ class MailWP_Admin {
         add_action('pre_update_option_mailwp_msauth_tenant_id', [$this, 'preserve_oauth_tokens'], 10, 3);
         add_action('pre_update_option_mailwp_msauth_client_secret', [$this, 'preserve_oauth_tokens'], 10, 3);
         add_action('pre_update_option_mailwp_msauth_custom_redirect_uri', [$this, 'preserve_oauth_tokens'], 10, 3);
+        add_action('pre_update_option_mailwp_msauth_tenant_mode', [$this, 'preserve_oauth_tokens'], 10, 3);
         
         // Add hook to show stored error messages after redirect
         add_action('admin_notices', [$this, 'show_stored_messages']);
@@ -192,6 +193,16 @@ class MailWP_Admin {
             'mailwp_msauth_custom_redirect_uri',
             [
                 'sanitize_callback' => 'esc_url_raw'
+            ]
+        );
+
+        // Tenant mode setting (single-tenant or multi-tenant)
+        register_setting(
+            'mailwp_settings',
+            'mailwp_msauth_tenant_mode',
+            [
+                'sanitize_callback' => 'sanitize_text_field',
+                'default' => 'single'
             ]
         );
 
@@ -396,10 +407,30 @@ class MailWP_Admin {
                                 </td>
                             </tr>
                             <tr valign="top">
+                                <th scope="row"><?php _e('Tenant Mode', 'mailwp'); ?></th>
+                                <td>
+                                    <select name="mailwp_msauth_tenant_mode" id="mailwp_msauth_tenant_mode">
+                                        <option value="single" <?php selected(get_option('mailwp_msauth_tenant_mode', 'single'), 'single'); ?>><?php _e('Single-tenant (Specific Organization)', 'mailwp'); ?></option>
+                                        <option value="multi" <?php selected(get_option('mailwp_msauth_tenant_mode', 'single'), 'multi'); ?>><?php _e('Multi-tenant (Any Organization)', 'mailwp'); ?></option>
+                                    </select>
+                                    <p class="description">
+                                        <?php _e('Choose whether to allow authentication from a specific organization only (single-tenant) or from any organization (multi-tenant).', 'mailwp'); ?>
+                                        <br><strong><?php _e('Single-tenant:', 'mailwp'); ?></strong> <?php _e('Uses your specific Tenant ID - more secure, only users from your organization can authenticate.', 'mailwp'); ?>
+                                        <br><strong><?php _e('Multi-tenant:', 'mailwp'); ?></strong> <?php _e('Uses "common" endpoint - allows users from any organization to authenticate.', 'mailwp'); ?>
+                                    </p>
+                                </td>
+                            </tr>
+                            <tr valign="top">
                                 <th scope="row"><?php _e('Tenant ID', 'mailwp'); ?></th>
                                 <td>
-                                    <input type="text" name="mailwp_msauth_tenant_id" value="<?php echo esc_attr(get_option('mailwp_msauth_tenant_id')); ?>" class="regular-text" />
-                                    <p class="description"><?php _e('Your Azure AD Tenant ID.', 'mailwp'); ?></p>
+                                    <input type="text" 
+                                           name="mailwp_msauth_tenant_id" 
+                                           id="mailwp_msauth_tenant_id"
+                                           value="<?php echo esc_attr(get_option('mailwp_msauth_tenant_id')); ?>" 
+                                           class="regular-text" />
+                                    <p class="description" id="mailwp_tenant_id_description">
+                                        <?php _e('Your Azure AD Tenant ID. Required for single-tenant mode, optional for multi-tenant mode.', 'mailwp'); ?>
+                                    </p>
                                 </td>
                             </tr>
                             <tr valign="top">
@@ -568,7 +599,12 @@ class MailWP_Admin {
                                     <?php _e('Click on "New registration" and fill in:', 'mailwp'); ?>
                                     <ul style="margin: 5px 0 0 20px;">
                                         <li><?php _e('Name: MailWP Plugin (or any name you prefer)', 'mailwp'); ?></li>
-                                        <li><?php _e('Supported account types: Accounts in this organizational directory only', 'mailwp'); ?></li>
+                                        <li><?php _e('Supported account types:', 'mailwp'); ?>
+                                            <ul style="margin: 5px 0 0 20px; font-size: 13px;">
+                                                <li><strong><?php _e('Single-tenant:', 'mailwp'); ?></strong> <?php _e('Accounts in this organizational directory only', 'mailwp'); ?></li>
+                                                <li><strong><?php _e('Multi-tenant:', 'mailwp'); ?></strong> <?php _e('Accounts in any organizational directory', 'mailwp'); ?></li>
+                                            </ul>
+                                        </li>
                                         <li><?php _e('Redirect URI: Web -', 'mailwp'); ?> <code style="background: #f0f0f0; padding: 2px 4px;" id="mailwp-guide-redirect-uri"><?php echo esc_html($current_redirect_uri); ?></code></li>
                                     </ul>
                                 </li>
@@ -580,7 +616,7 @@ class MailWP_Admin {
                                 
                                 <li style="margin-bottom: 10px;">
                                     <strong><?php _e('Get Directory (Tenant) ID', 'mailwp'); ?></strong><br>
-                                    <?php _e('Also copy the "Directory (tenant) ID" from the same overview page.', 'mailwp'); ?>
+                                    <?php _e('Also copy the "Directory (tenant) ID" from the same overview page. This is required for single-tenant mode, but optional for multi-tenant mode.', 'mailwp'); ?>
                                 </li>
                                 
                                 <li style="margin-bottom: 10px;">
@@ -676,6 +712,27 @@ class MailWP_Admin {
                     
                     // Initialize display
                     updateCurrentRedirectDisplay();
+                    
+                    // Tenant mode functionality
+                    function updateTenantIdVisibility() {
+                        var tenantMode = $('#mailwp_msauth_tenant_mode').val();
+                        var tenantIdRow = $('#mailwp_msauth_tenant_id').closest('tr');
+                        var description = $('#mailwp_tenant_id_description');
+                        
+                        if (tenantMode === 'multi') {
+                            tenantIdRow.find('th').html('<?php _e('Tenant ID', 'mailwp'); ?> <span style="color: #999; font-weight: normal;">(<?php _e('Optional', 'mailwp'); ?>)</span>');
+                            description.html('<?php _e('Tenant ID is optional for multi-tenant mode. If provided, it will be used for token requests, otherwise "common" will be used.', 'mailwp'); ?>');
+                        } else {
+                            tenantIdRow.find('th').html('<?php _e('Tenant ID', 'mailwp'); ?>');
+                            description.html('<?php _e('Your Azure AD Tenant ID. Required for single-tenant mode.', 'mailwp'); ?>');
+                        }
+                    }
+                    
+                    // Update tenant ID visibility when tenant mode changes
+                    $('#mailwp_msauth_tenant_mode').on('change', updateTenantIdVisibility);
+                    
+                    // Initialize tenant ID visibility
+                    updateTenantIdVisibility();
                 });
                 </script>
             <?php elseif ($active_tab === 'test') : ?>
