@@ -847,6 +847,11 @@ class MailWP_Admin {
                                         <strong><?php _e('Avec pièce jointe', 'mailwp'); ?></strong>
                                         <span style="color: #666; margin-left: 6px;"><?php _e('Envoi d\'un email avec le fichier <code>test.txt</code> en pièce jointe — teste le support des attachements.', 'mailwp'); ?></span>
                                     </label>
+                                    <label style="display: block; margin-bottom: 8px;">
+                                        <input type="radio" name="mailwp_test_type" value="with_reply_to" />
+                                        <strong><?php _e('Reply-To', 'mailwp'); ?></strong>
+                                        <span style="color: #666; margin-left: 6px;"><?php _e('Envoi d\'un email avec le header <code>Reply-To: test@test.com</code> — teste la propagation du Reply-To.', 'mailwp'); ?></span>
+                                    </label>
                                 </fieldset>
                             </td>
                         </tr>
@@ -984,6 +989,11 @@ class MailWP_Admin {
                 echo '<div class="notice notice-error inline"><p>' . __('Erreur : le fichier de test (assets/test.txt) est introuvable.', 'mailwp') . '</p></div>';
                 wp_die();
             }
+        } elseif ($test_type === 'with_reply_to') {
+            $subject = '[Reply-To] ' . $subject;
+            $message = __('Ceci est un courriel de test envoyé avec un header Reply-To via MailWP.', 'mailwp') . "\n\n";
+            $message .= __('Si vous répondez à ce message, votre réponse devrait être adressée à test@test.com et non à l\'expéditeur original.', 'mailwp');
+            $headers = ['Reply-To: test@test.com'];
         } else {
             $message = __('This is a test email sent via MailWP. If you receive this email, the configuration is working correctly. Please verify the sender address to ensure it matches your expected configuration.', 'mailwp');
             $headers = [];
