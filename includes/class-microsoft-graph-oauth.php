@@ -466,12 +466,10 @@ class MailWP_Microsoft_Graph_OAuth {
         
         // If no HTML content type found in headers, check if content contains HTML tags
         if ($content_type === 'text') {
-            // Check for common HTML tags like <br>, <p>, <div>, etc.
-            if (preg_match('/<\s*\/?(?:br|p|div|span|strong|b|i|em|u|h[1-6]|ul|ol|li|a|img)\s*\/?>/i', $message_content)) {
-                // Content contains HTML tags - convert <br> tags to line breaks for text display
-                $message_content = preg_replace('/<br\s*\/?>/i', "\n", $message_content);
-                // Strip all other HTML tags
-                $message_content = strip_tags($message_content);
+            // Check for common HTML tags like <br>, <p>, <div>, <style>, etc.
+            if (preg_match('/<\s*\/?(?:br|p|div|span|strong|b|i|em|u|h[1-6]|ul|ol|li|a|img|style|html|body|head)\s*[^>]*>/i', $message_content)) {
+                // Content contains HTML markup — send as HTML to preserve formatting
+                $content_type = 'html';
             }
         }
         
