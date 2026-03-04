@@ -747,6 +747,23 @@ class MailWP_Admin {
                                 <p class="description"><?php _e('Enter the email address you want to receive the test email.', 'mailwp'); ?></p>
                             </td>
                         </tr>
+                        <tr valign="top">
+                            <th scope="row"><?php _e('Type de test', 'mailwp'); ?></th>
+                            <td>
+                                <fieldset>
+                                    <label style="display: block; margin-bottom: 8px;">
+                                        <input type="radio" name="mailwp_test_type" value="plain" checked />
+                                        <strong><?php _e('Texte simple', 'mailwp'); ?></strong>
+                                        <span style="color: #666; margin-left: 6px;"><?php _e('Envoi sans header Content-Type (comportement par défaut).', 'mailwp'); ?></span>
+                                    </label>
+                                    <label style="display: block;">
+                                        <input type="radio" name="mailwp_test_type" value="html_no_header" />
+                                        <strong><?php _e('HTML sans header', 'mailwp'); ?></strong>
+                                        <span style="color: #666; margin-left: 6px;"><?php _e('Envoi d\'un contenu HTML sans spécifier le header Content-Type — teste la détection automatique.', 'mailwp'); ?></span>
+                                    </label>
+                                </fieldset>
+                            </td>
+                        </tr>
                     </table>
                     <p class="submit">
                         <button type="submit" class="button button-primary" id="mailwp-send-test"><?php _e('Send test email', 'mailwp'); ?></button>
@@ -760,6 +777,7 @@ class MailWP_Admin {
                             e.preventDefault();
                             
                             var email = $('#mailwp-test-email').val();
+                            var testType = $('input[name="mailwp_test_type"]:checked').val();
                             
                             $('#mailwp-send-test').prop('disabled', true);
                             $('#mailwp-test-spinner').addClass('is-active');
@@ -768,6 +786,7 @@ class MailWP_Admin {
                             $.post(ajaxurl, {
                                 action: 'mailwp_send_test_email',
                                 email: email,
+                                test_type: testType,
                                 subject: "<?php echo esc_js(__('Test email via MailWP', 'mailwp')); ?>",
                                 nonce: '<?php echo wp_create_nonce('mailwp_test_nonce'); ?>'
                             }, function(response) {
@@ -827,6 +846,7 @@ class MailWP_Admin {
         
         $email = isset($_POST['email']) ? sanitize_email($_POST['email']) : '';
         $subject = isset($_POST['subject']) ? sanitize_text_field($_POST['subject']) : __('Test email via MailWP', 'mailwp');
+        $test_type = isset($_POST['test_type']) ? sanitize_text_field($_POST['test_type']) : 'plain';
         
         if (empty($email)) {
             echo '<div class="notice notice-error inline"><p>' . __('Please enter a valid email address.', 'mailwp') . '</p></div>';
@@ -855,8 +875,19 @@ class MailWP_Admin {
             }
         }
         
-        $message = __('This is a test email sent via MailWP. If you receive this email, the configuration is working correctly. Please verify the sender address to ensure it matches your expected configuration.', 'mailwp');
-        $headers = ['Content-Type: text/html; charset=UTF-8'];
+        if ($test_type === 'html_no_header') {
+            $subject = '[HTML sans header] ' . $subject;
+            $message = '<html><head><style>body { font-family: Arial, sans-serif; color: #333; } .box { background: #f0f7ff; border-left: 4px solid #0073aa; padding: 16px 20px; margin: 20px 0; } h2 { color: #0073aa; }</style></head><body>';
+            $message .= '<h2>' . __('Test HTML — détection automatique', 'mailwp') . '</h2>';
+            $message .= '<div class="box"><p>' . __('Ceci est un courriel de test envoyé <strong>sans header Content-Type</strong>.', 'mailwp') . '</p>';
+            $message .= '<p>' . __('Si vous voyez ce message correctement mis en forme (avec couleurs et style), la détection automatique du HTML fonctionne.', 'mailwp') . '</p>';
+            $message .= '<p>' . __('Si vous voyez du code CSS brut au début du message, la détection automatique ne fonctionne pas correctement.', 'mailwp') . '</p></div>';
+            $message .= '</body></html>';
+            $headers = [];
+        } else {
+            $message = __('This is a test email sent via MailWP. If you receive this email, the configuration is working correctly. Please verify the sender address to ensure it matches your expected configuration.', 'mailwp');
+            $headers = [];
+        }
         
         add_action('wp_mail_failed', function($wp_error) {
             if (is_wp_error($wp_error)) {
