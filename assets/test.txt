@@ -1,0 +1,10 @@
+MailWP - Test Attachment File
+==============================
+
+This file is used to test email attachment sending via the MailWP plugin.
+
+If you received this file as an attachment, the attachment functionality is working correctly.
+
+Plugin: MailWP
+Author: Hyko
+Website: https://hyko.cx

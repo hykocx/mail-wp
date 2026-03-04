@@ -837,10 +837,15 @@ class MailWP_Admin {
                                         <strong><?php _e('Texte simple', 'mailwp'); ?></strong>
                                         <span style="color: #666; margin-left: 6px;"><?php _e('Envoi sans header Content-Type (comportement par défaut).', 'mailwp'); ?></span>
                                     </label>
-                                    <label style="display: block;">
+                                    <label style="display: block; margin-bottom: 8px;">
                                         <input type="radio" name="mailwp_test_type" value="html_no_header" />
                                         <strong><?php _e('HTML sans header', 'mailwp'); ?></strong>
                                         <span style="color: #666; margin-left: 6px;"><?php _e('Envoi d\'un contenu HTML sans spécifier le header Content-Type — teste la détection automatique.', 'mailwp'); ?></span>
+                                    </label>
+                                    <label style="display: block; margin-bottom: 8px;">
+                                        <input type="radio" name="mailwp_test_type" value="with_attachment" />
+                                        <strong><?php _e('Avec pièce jointe', 'mailwp'); ?></strong>
+                                        <span style="color: #666; margin-left: 6px;"><?php _e('Envoi d\'un email avec le fichier <code>test.txt</code> en pièce jointe — teste le support des attachements.', 'mailwp'); ?></span>
                                     </label>
                                 </fieldset>
                             </td>
@@ -956,6 +961,8 @@ class MailWP_Admin {
             }
         }
         
+        $attachments = [];
+
         if ($test_type === 'html_no_header') {
             $subject = '[HTML sans header] ' . $subject;
             $message = '<html><head><style>body { font-family: Arial, sans-serif; color: #333; } .box { background: #f0f7ff; border-left: 4px solid #0073aa; padding: 16px 20px; margin: 20px 0; } h2 { color: #0073aa; }</style></head><body>';
@@ -965,6 +972,18 @@ class MailWP_Admin {
             $message .= '<p>' . __('Si vous voyez du code CSS brut au début du message, la détection automatique ne fonctionne pas correctement.', 'mailwp') . '</p></div>';
             $message .= '</body></html>';
             $headers = [];
+        } elseif ($test_type === 'with_attachment') {
+            $subject = '[Pièce jointe] ' . $subject;
+            $message = __('Ceci est un courriel de test avec pièce jointe envoyé via MailWP.', 'mailwp') . "\n\n";
+            $message .= __('Si vous recevez ce message avec le fichier test.txt en pièce jointe, l\'envoi de pièces jointes fonctionne correctement.', 'mailwp');
+            $headers = [];
+            $attachment_path = plugin_dir_path(HYMAILWP_PLUGIN_FILE) . 'assets/test.txt';
+            if (file_exists($attachment_path)) {
+                $attachments = [$attachment_path];
+            } else {
+                echo '<div class="notice notice-error inline"><p>' . __('Erreur : le fichier de test (assets/test.txt) est introuvable.', 'mailwp') . '</p></div>';
+                wp_die();
+            }
         } else {
             $message = __('This is a test email sent via MailWP. If you receive this email, the configuration is working correctly. Please verify the sender address to ensure it matches your expected configuration.', 'mailwp');
             $headers = [];
@@ -977,7 +996,7 @@ class MailWP_Admin {
             }
         });
         
-        $result = wp_mail($email, $subject, $message, $headers);
+        $result = wp_mail($email, $subject, $message, $headers, $attachments);
         
         // Log the test email attempt
         global $mailwp_service;

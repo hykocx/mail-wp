@@ -2,7 +2,7 @@
 /**
  * Plugin Name: MailWP
  * Description: Replace WordPress email function with SMTP or other email providers.
- * Version: 1.0.7
+ * Version: 1.0.8
  * Author: Hyko
  * Author URI: https://hyko.cx
  * Text Domain: mailwp
@@ -149,9 +149,10 @@ class Hy_MailWP_Service {
         $headers = $atts['headers'] ?? [];
         $attachments = $atts['attachments'] ?? [];
         
-        // Parse headers for CC, BCC
+        // Parse headers for CC, BCC, Reply-To
         $cc = [];
         $bcc = [];
+        $reply_to = [];
         $parsed_headers = [];
         
         if (is_array($headers)) {
@@ -161,6 +162,8 @@ class Hy_MailWP_Service {
                         $cc[] = trim(substr($header, 3));
                     } elseif (stripos($header, 'bcc:') === 0) {
                         $bcc[] = trim(substr($header, 4));
+                    } elseif (stripos($header, 'reply-to:') === 0) {
+                        $reply_to[] = trim(substr($header, 9));
                     } else {
                         $parsed_headers[] = $header;
                     }
@@ -176,6 +179,7 @@ class Hy_MailWP_Service {
             'headers' => $parsed_headers,
             'cc' => $cc,
             'bcc' => $bcc,
+            'reply_to' => $reply_to,
             'attachments' => $attachments
         ];
         

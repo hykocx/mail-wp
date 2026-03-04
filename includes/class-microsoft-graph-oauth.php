@@ -454,7 +454,6 @@ class MailWP_Microsoft_Graph_OAuth {
         $content_type = 'text';
         $message_content = $email_data['message'];
         
-        // Check headers first
         if (!empty($email_data['headers'])) {
             foreach ($email_data['headers'] as $header) {
                 if (stripos($header, 'content-type') !== false && stripos($header, 'html') !== false) {
@@ -464,26 +463,23 @@ class MailWP_Microsoft_Graph_OAuth {
             }
         }
         
-        // If no HTML content type found in headers, check if content contains HTML tags
         if ($content_type === 'text') {
-            // Check for common HTML tags like <br>, <p>, <div>, <style>, etc.
             if (preg_match('/<\s*\/?(?:br|p|div|span|strong|b|i|em|u|h[1-6]|ul|ol|li|a|img|style|html|body|head)\s*[^>]*>/i', $message_content)) {
-                // Content contains HTML markup — send as HTML to preserve formatting
                 $content_type = 'html';
             }
         }
         
-        // Prepare message
+        // Build message structure
         $message = [
             'subject' => $email_data['subject'],
             'body' => [
                 'contentType' => $content_type,
-                'content' => $message_content
+                'content'     => $message_content
             ],
             'from' => [
                 'emailAddress' => [
                     'address' => $from_email,
-                    'name' => $from_name
+                    'name'    => $from_name
                 ]
             ],
             'toRecipients' => $to_recipients
@@ -496,33 +492,66 @@ class MailWP_Microsoft_Graph_OAuth {
         if (!empty($bcc_recipients)) {
             $message['bccRecipients'] = $bcc_recipients;
         }
-        
-        // Handle attachments
-        if (!empty($email_data['attachments'])) {
-            $message['attachments'] = [];
-            foreach ($email_data['attachments'] as $attachment) {
-                if (is_file($attachment)) {
-                    $content = base64_encode(file_get_contents($attachment));
-                    $message['attachments'][] = [
-                        '@odata.type' => '#microsoft.graph.fileAttachment',
-                        'name' => basename($attachment),
-                        'contentBytes' => $content
-                    ];
+
+        // Preserve Reply-To header
+        if (!empty($email_data['reply_to'])) {
+            $reply_to_recipients = [];
+            $reply_to_list = is_array($email_data['reply_to']) ? $email_data['reply_to'] : [$email_data['reply_to']];
+            foreach ($reply_to_list as $reply_to_email) {
+                $reply_to_email = trim($reply_to_email);
+                if (!empty($reply_to_email)) {
+                    $reply_to_recipients[] = ['emailAddress' => ['address' => $reply_to_email]];
                 }
+            }
+            if (!empty($reply_to_recipients)) {
+                $message['replyTo'] = $reply_to_recipients;
             }
         }
         
-        $payload = ['message' => $message];
+        // Attach files inline (base64). Files >= 3 MB are silently skipped:
+        // the Microsoft Graph API /me/sendMail endpoint does not support payloads
+        // larger than 4 MB, and the alternative (createUploadSession) requires
+        // Mail.ReadWrite which is a broader permission we deliberately avoid.
+        $size_limit = 3 * 1024 * 1024; // 3 MB
         
-        // Send the email
+        if (!empty($email_data['attachments'])) {
+            $message['attachments'] = [];
+            foreach ($email_data['attachments'] as $path) {
+                if (!is_file($path) || !is_readable($path)) {
+                    continue;
+                }
+                if (filesize($path) >= $size_limit) {
+                    error_log(sprintf(
+                        'MailWP: attachment "%s" skipped — file exceeds the 3 MB limit supported by Microsoft Graph (Mail.Send scope only).',
+                        basename($path)
+                    ));
+                    continue;
+                }
+                $file_data = file_get_contents($path);
+                if ($file_data === false) {
+                    continue;
+                }
+                $message['attachments'][] = [
+                    '@odata.type'  => '#microsoft.graph.fileAttachment',
+                    'name'         => basename($path),
+                    'contentType'  => $this->get_mime_type($path),
+                    'contentBytes' => base64_encode($file_data)
+                ];
+            }
+            if (empty($message['attachments'])) {
+                unset($message['attachments']);
+            }
+        }
+        
+        // Standard path: send directly via /me/sendMail
         $response = wp_remote_post(
             self::GRAPH_API_URL . '/me/sendMail',
             [
                 'headers' => [
                     'Authorization' => 'Bearer ' . $access_token,
-                    'Content-Type' => 'application/json'
+                    'Content-Type'  => 'application/json'
                 ],
-                'body' => json_encode($payload),
+                'body'    => json_encode(['message' => $message]),
                 'timeout' => 30
             ]
         );
@@ -534,20 +563,36 @@ class MailWP_Microsoft_Graph_OAuth {
         $response_code = wp_remote_retrieve_response_code($response);
         
         if ($response_code === 202) {
-            return true; // Email sent successfully
+            return true;
         }
         
         $body = wp_remote_retrieve_body($response);
         $data = json_decode($body, true);
         
-        $error_message = 'Unknown error';
-        if (isset($data['error']['message'])) {
-            $error_message = $data['error']['message'];
-        } elseif (isset($data['error']['code'])) {
-            $error_message = $data['error']['code'];
-        }
+        $error_message = $data['error']['message'] ?? $data['error']['code'] ?? 'Unknown error';
         
         return new WP_Error('graph_api_error', "Graph API error (HTTP $response_code): $error_message");
+    }
+    
+    /**
+     * Resolve the MIME type of a file, falling back to application/octet-stream.
+     *
+     * @param string $file_path Absolute path to the file
+     * @return string MIME type string
+     */
+    private function get_mime_type($file_path) {
+        $mime = '';
+        
+        if (function_exists('mime_content_type')) {
+            $mime = mime_content_type($file_path);
+        }
+        
+        if (empty($mime)) {
+            $file_info = wp_check_filetype(basename($file_path));
+            $mime      = $file_info['type'] ?? '';
+        }
+        
+        return $mime ?: 'application/octet-stream';
     }
     
     /**
