@@ -316,7 +316,7 @@ class MailWP_Admin {
             </h2>
             
             <?php if ($active_tab === 'options') : ?>
-                <form method="post" action="options.php">
+                <form method="post" action="options.php" id="mailwp-settings-form">
                     <?php
                     settings_fields('mailwp_settings');
                     do_settings_sections('mailwp_settings');
@@ -399,10 +399,42 @@ class MailWP_Admin {
 
                     <div id="microsoft_graph_options" style="display: <?php echo get_option('mailwp_mailer_type', 'smtp') === 'microsoft_graph' ? 'block' : 'none'; ?>">
                         <table class="form-table">
+                            <?php
+                            $ms_client_id     = get_option('mailwp_msauth_client_id', '');
+                            $ms_client_secret = get_option('mailwp_msauth_client_secret', '');
+                            $ms_fields_saved  = !empty($ms_client_id) && !empty($ms_client_secret);
+                            $access_token     = get_option('mailwp_msauth_access_token');
+                            ?>
+                            <tr valign="top" id="mailwp-auth-status-row" style="display: <?php echo $ms_fields_saved ? 'table-row' : 'none'; ?>;">
+                                <th scope="row"><?php _e('Authorization Status', 'mailwp'); ?></th>
+                                <td>
+                                    <?php if (!empty($access_token)): ?>
+                                        <p style="color: green;"><strong><?php _e('✓ Authorized', 'mailwp'); ?></strong></p>
+                                        <p>
+                                            <a href="<?php echo wp_nonce_url(admin_url('options-general.php?page=mailwp-settings&action=change_msauth_account'), 'change_msauth_account'); ?>" 
+                                               class="button button-primary mailwp-auth-link">
+                                                <?php _e('Change Account', 'mailwp'); ?>
+                                            </a>
+                                            <a href="<?php echo wp_nonce_url(admin_url('options-general.php?page=mailwp-settings&action=revoke_msauth'), 'revoke_msauth'); ?>" class="button button-secondary">
+                                                <?php _e('Revoke Authorization', 'mailwp'); ?>
+                                            </a>
+                                        </p>
+                                    <?php else: ?>
+                                        <p style="color: red;"><strong><?php _e('✗ Not Authorized', 'mailwp'); ?></strong></p>
+                                        <p>
+                                            <a href="<?php echo wp_nonce_url(admin_url('options-general.php?page=mailwp-settings&action=authorize_msauth'), 'authorize_msauth'); ?>" 
+                                               class="button button-primary mailwp-auth-link">
+                                                <?php _e('Authorize with Microsoft', 'mailwp'); ?>
+                                            </a>
+                                        </p>
+                                    <?php endif; ?>
+                                    <p class="description"><?php _e('You must authorize the application to send emails on your behalf.', 'mailwp'); ?></p>
+                                </td>
+                            </tr>
                             <tr valign="top">
                                 <th scope="row"><?php _e('Client ID', 'mailwp'); ?></th>
                                 <td>
-                                    <input type="text" name="mailwp_msauth_client_id" value="<?php echo esc_attr(get_option('mailwp_msauth_client_id')); ?>" class="regular-text" />
+                                    <input type="text" name="mailwp_msauth_client_id" value="<?php echo esc_attr($ms_client_id); ?>" class="regular-text" />
                                     <p class="description"><?php _e('Your Azure AD Application Client ID.', 'mailwp'); ?></p>
                                 </td>
                             </tr>
@@ -436,7 +468,7 @@ class MailWP_Admin {
                             <tr valign="top">
                                 <th scope="row"><?php _e('Client Secret', 'mailwp'); ?></th>
                                 <td>
-                                    <input type="password" name="mailwp_msauth_client_secret" value="<?php echo esc_attr(get_option('mailwp_msauth_client_secret')); ?>" class="regular-text" />
+                                    <input type="password" name="mailwp_msauth_client_secret" value="<?php echo esc_attr($ms_client_secret); ?>" class="regular-text" />
                                     <p class="description">
                                         <?php _e('Your Azure AD Application Client Secret.', 'mailwp'); ?>
                                         <?php if (get_option('mailwp_enable_encryption', false)): ?>
@@ -489,35 +521,6 @@ class MailWP_Admin {
                                     </p>
                                 </td>
                             </tr>
-                            <tr valign="top">
-                                <th scope="row"><?php _e('Authorization Status', 'mailwp'); ?></th>
-                                <td>
-                                    <?php
-                                    $access_token = get_option('mailwp_msauth_access_token');
-                                    $has_custom_redirect = !empty(get_option('mailwp_msauth_custom_redirect_uri', ''));
-                                    if (!empty($access_token)): ?>
-                                        <p style="color: green;"><strong><?php _e('✓ Authorized', 'mailwp'); ?></strong></p>
-                                        <p>
-                                            <a href="<?php echo wp_nonce_url(admin_url('options-general.php?page=mailwp-settings&action=change_msauth_account'), 'change_msauth_account'); ?>" 
-                                               class="button button-primary mailwp-auth-link">
-                                                <?php _e('Change Account', 'mailwp'); ?>
-                                            </a>
-                                            <a href="<?php echo wp_nonce_url(admin_url('options-general.php?page=mailwp-settings&action=revoke_msauth'), 'revoke_msauth'); ?>" class="button button-secondary">
-                                                <?php _e('Revoke Authorization', 'mailwp'); ?>
-                                            </a>
-                                        </p>
-                                    <?php else: ?>
-                                        <p style="color: red;"><strong><?php _e('✗ Not Authorized', 'mailwp'); ?></strong></p>
-                                        <p>
-                                            <a href="<?php echo wp_nonce_url(admin_url('options-general.php?page=mailwp-settings&action=authorize_msauth'), 'authorize_msauth'); ?>" 
-                                               class="button button-primary mailwp-auth-link">
-                                                <?php _e('Authorize with Microsoft', 'mailwp'); ?>
-                                            </a>
-                                        </p>
-                                    <?php endif; ?>
-                                    <p class="description"><?php _e('You must authorize the application to send emails on your behalf.', 'mailwp'); ?></p>
-                                </td>
-                            </tr>
                         </table>
                     </div>
 
@@ -560,6 +563,20 @@ class MailWP_Admin {
                     
                     <?php submit_button(); ?>
                 </form>
+
+                <!-- Floating unsaved changes notification -->
+                <div id="mailwp-unsaved-toast" style="display:none; position:fixed; bottom:30px; right:30px; z-index:99999; background:#fff; border:1px solid #c3c4c7; border-left:4px solid #d63638; border-radius:4px; padding:16px 18px; box-shadow:0 4px 20px rgba(0,0,0,0.18); min-width:260px; max-width:320px; font-size:13px; transition:all .25s ease;">
+                    <p style="margin:0 0 5px; font-weight:600; color:#1d2327; display:flex; align-items:center; gap:6px;">
+                        <span style="color:#d63638; font-size:16px;">&#9888;</span>
+                        <?php _e('Unsaved Changes', 'mailwp'); ?>
+                    </p>
+                    <p style="margin:0 0 12px; color:#646970; line-height:1.5;">
+                        <?php _e('You have unsaved settings. Don\'t forget to save before leaving this page.', 'mailwp'); ?>
+                    </p>
+                    <button type="submit" form="mailwp-settings-form" class="button button-primary" style="width:100%; justify-content:center;">
+                        <?php _e('Save Settings', 'mailwp'); ?>
+                    </button>
+                </div>
 
                 <!-- Configuration Guide Section for Microsoft Graph -->
                 <div id="mailwp-microsoft-guide" style="display: <?php echo get_option('mailwp_mailer_type', 'smtp') === 'microsoft_graph' ? 'block' : 'none'; ?>; margin-top: 20px;">
@@ -733,6 +750,70 @@ class MailWP_Admin {
                     
                     // Initialize tenant ID visibility
                     updateTenantIdVisibility();
+
+                    // Track unsaved changes — floating toast + Microsoft auth button
+                    var $settingsForm = $('#mailwp-settings-form');
+                    var initialFormData = $settingsForm.serialize();
+
+                    var msFieldSelectors = [
+                        '#mailwp_mailer_type',
+                        'input[name="mailwp_msauth_client_id"]',
+                        'input[name="mailwp_msauth_tenant_id"]',
+                        '#mailwp_msauth_tenant_mode',
+                        'input[name="mailwp_msauth_client_secret"]',
+                        'input[name="mailwp_msauth_from_email"]',
+                        'input[name="mailwp_msauth_from_name"]',
+                        '#mailwp_msauth_custom_redirect_uri'
+                    ];
+
+                    var originalMsValues = {};
+                    $.each(msFieldSelectors, function(i, selector) {
+                        var $el = $(selector);
+                        if ($el.length) {
+                            originalMsValues[selector] = $el.val();
+                        }
+                    });
+
+                    function updateAuthStatusVisibility() {
+                        var clientId     = $('input[name="mailwp_msauth_client_id"]').val().trim();
+                        var clientSecret = $('input[name="mailwp_msauth_client_secret"]').val().trim();
+                        var hasRequiredFields = clientId !== '' && clientSecret !== '';
+
+                        var msChanged = false;
+                        $.each(msFieldSelectors, function(i, selector) {
+                            var $el = $(selector);
+                            if ($el.length && originalMsValues[selector] !== undefined) {
+                                if ($el.val() !== originalMsValues[selector]) {
+                                    msChanged = true;
+                                    return false;
+                                }
+                            }
+                        });
+
+                        if (hasRequiredFields && !msChanged) {
+                            $('#mailwp-auth-status-row').show();
+                        } else {
+                            $('#mailwp-auth-status-row').hide();
+                        }
+                    }
+
+                    function checkAllFormChanges() {
+                        var hasChanges = $settingsForm.serialize() !== initialFormData;
+
+                        if (hasChanges) {
+                            $('#mailwp-unsaved-toast').stop(true, true).slideDown(250);
+                        } else {
+                            $('#mailwp-unsaved-toast').stop(true, true).slideUp(200);
+                        }
+
+                        updateAuthStatusVisibility();
+                    }
+
+                    $settingsForm.on('change input', 'input, select, textarea', checkAllFormChanges);
+
+                    $settingsForm.on('submit', function() {
+                        $('#mailwp-unsaved-toast').stop(true, true).hide();
+                    });
                 });
                 </script>
             <?php elseif ($active_tab === 'test') : ?>
