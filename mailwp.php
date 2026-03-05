@@ -154,7 +154,12 @@ class Hy_MailWP_Service {
         $bcc = [];
         $reply_to = [];
         $parsed_headers = [];
-        
+
+        // Normalize headers to array whether passed as string or array
+        if (is_string($headers)) {
+            $headers = array_filter(array_map('trim', explode("\n", str_replace("\r\n", "\n", $headers))));
+        }
+
         if (is_array($headers)) {
             foreach ($headers as $header) {
                 if (is_string($header)) {

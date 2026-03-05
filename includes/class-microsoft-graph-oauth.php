@@ -497,10 +497,10 @@ class MailWP_Microsoft_Graph_OAuth {
         if (!empty($email_data['reply_to'])) {
             $reply_to_recipients = [];
             $reply_to_list = is_array($email_data['reply_to']) ? $email_data['reply_to'] : [$email_data['reply_to']];
-            foreach ($reply_to_list as $reply_to_email) {
-                $reply_to_email = trim($reply_to_email);
-                if (!empty($reply_to_email)) {
-                    $reply_to_recipients[] = ['emailAddress' => ['address' => $reply_to_email]];
+            foreach ($reply_to_list as $reply_to_entry) {
+                $parsed = $this->parse_email_address($reply_to_entry);
+                if ($parsed) {
+                    $reply_to_recipients[] = ['emailAddress' => $parsed];
                 }
             }
             if (!empty($reply_to_recipients)) {
@@ -574,6 +574,39 @@ class MailWP_Microsoft_Graph_OAuth {
         return new WP_Error('graph_api_error', "Graph API error (HTTP $response_code): $error_message");
     }
     
+    /**
+     * Parse an email address string into a Graph API emailAddress object.
+     * Handles both "email@example.com" and "Name <email@example.com>" formats.
+     *
+     * @param string $entry Raw email address string
+     * @return array|null Associative array with 'address' (and optionally 'name'), or null if invalid
+     */
+    private function parse_email_address($entry) {
+        $entry = trim($entry);
+        if (empty($entry)) {
+            return null;
+        }
+
+        if (preg_match('/^(.*?)\s*<([^>]+)>\s*$/', $entry, $matches)) {
+            $email = trim($matches[2]);
+            $name  = trim(trim($matches[1]), '"\'');
+            if (!is_email($email)) {
+                return null;
+            }
+            $result = ['address' => $email];
+            if (!empty($name)) {
+                $result['name'] = $name;
+            }
+            return $result;
+        }
+
+        if (is_email($entry)) {
+            return ['address' => $entry];
+        }
+
+        return null;
+    }
+
     /**
      * Resolve the MIME type of a file, falling back to application/octet-stream.
      *
